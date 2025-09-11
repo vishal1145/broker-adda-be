@@ -1,10 +1,12 @@
 import { errorResponse } from '../utils/response.js';
 
-export const validate = (schema) => {
+export const validate = (schema, source = 'body') => {
   return async (req, res, next) => {
     try {
-      console.log('Validation middleware - validating request body:', req.body);
-      const { error } = await schema.validateAsync(req.body);
+      const dataToValidate = source === 'query' ? req.query : req.body;
+      console.log(`Validation middleware - validating request ${source}:`, dataToValidate);
+      
+      const { error } = await schema.validateAsync(dataToValidate);
       
       if (error) {
         console.log('Validation error:', error.details);

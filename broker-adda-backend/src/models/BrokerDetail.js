@@ -43,8 +43,8 @@ const brokerDetailSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['active', 'busy'],
-    default: 'active'
+    enum: ['active', 'inactive'],
+    default: 'inactive'
   },
   approvedByAdmin: {
     type: Boolean,
