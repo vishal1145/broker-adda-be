@@ -269,7 +269,7 @@ export const verifyOTP = async (req, res) => {
         const brokerDetail = new BrokerDetail({
           userId: user._id,
           firmName: '',
-          regionId: null,
+          region: [],
           kycDocs: {
             aadhar: '',
             pan: '',
@@ -366,7 +366,7 @@ export const verifyOTP = async (req, res) => {
           brokerDetail = new BrokerDetail({
             userId: user._id,
             firmName: '',
-            regionId: null,
+            region: [],
             kycDocs: {
               aadhar: '',
               pan: '',
@@ -481,10 +481,13 @@ export const completeProfile = async (req, res) => {
     }
 
     // Validate region existence for broker
-    if (user.role === 'broker' && roleSpecificData.brokerDetails?.regionId) {
-      const region = await Region.findById(roleSpecificData.brokerDetails.regionId);
-      if (!region) {
-        return errorResponse(res, 'Region not found', 400);
+    if (user.role === 'broker' && roleSpecificData.brokerDetails?.region) {
+      const regionIds = roleSpecificData.brokerDetails.region;
+      for (const regionId of regionIds) {
+        const region = await Region.findById(regionId);
+        if (!region) {
+          return errorResponse(res, `Region not found: ${regionId}`, 400);
+        }
       }
     }
 
