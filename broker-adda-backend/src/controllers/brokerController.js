@@ -27,7 +27,7 @@ export const getAllBrokers = async (req, res) => {
     }
     
     if (regionId) {
-      filter.regionId = regionId;
+      filter.region = regionId;
     }
 
     // Search functionality
@@ -45,7 +45,7 @@ export const getAllBrokers = async (req, res) => {
 
     // Get brokers with populated region data
     const brokers = await BrokerDetail.find(filter)
-      .populate('regionId', 'name description')
+      .populate('region', 'name description')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -77,7 +77,7 @@ export const getBrokerById = async (req, res) => {
     const { id } = req.params;
 
     const broker = await BrokerDetail.findById(id)
-      .populate('regionId', 'name description');
+      .populate('region', 'name description');
 
     if (!broker) {
       return errorResponse(res, 'Broker not found', 404);
@@ -113,7 +113,7 @@ export const approveBroker = async (req, res) => {
 
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)
-      .populate('regionId', 'name description');
+      .populate('region', 'name description');
 
     return successResponse(res, 'Broker approved successfully', { 
       broker: updatedBroker 
@@ -149,7 +149,7 @@ export const rejectBroker = async (req, res) => {
 
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)
-      .populate('regionId', 'name description');
+      .populate('region', 'name description');
 
     return successResponse(res, 'Broker rejected successfully', { 
       broker: updatedBroker 

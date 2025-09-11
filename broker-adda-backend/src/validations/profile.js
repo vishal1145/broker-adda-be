@@ -7,7 +7,9 @@ export const completeProfileSchema = Joi.object({
   email: Joi.string().email().required().lowercase(),
   brokerDetails: Joi.object({
     firmName: Joi.string().required().min(2).max(100).trim(),
-    regionId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required(),
+    region: Joi.array().items(
+      Joi.string().pattern(/^[0-9a-fA-F]{24}$/)
+    ).min(1).required(),
     kycDocs: Joi.object({
       aadhar: Joi.string().required(),
       pan: Joi.string().required(),
@@ -31,8 +33,14 @@ export const completeProfileSchema = Joi.object({
 // Broker detail validation
 export const brokerDetailSchema = Joi.object({
   firmName: Joi.string().required().min(2).max(100).trim(),
-  regionId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required(),
-  kycDocs: Joi.object({
+ regionId: Joi.array()
+    .items(
+      Joi.string()
+        .pattern(/^[0-9a-fA-F]{24}$/) // MongoDB ObjectId regex
+        .required()
+    )
+    .min(1) // must have at least one regionId
+    .required(),  kycDocs: Joi.object({
     aadhar: Joi.string().required(),
     pan: Joi.string().required(),
     gst: Joi.string().required()

@@ -26,10 +26,10 @@ const brokerDetailSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Firm name cannot be more than 100 characters']
   },
-  regionId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Region'
-  },
+ region: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Region'
+    }],
   kycDocs: {
     aadhar: {
       type: String
