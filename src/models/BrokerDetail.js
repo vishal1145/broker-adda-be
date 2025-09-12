@@ -41,6 +41,11 @@ const brokerDetailSchema = new mongoose.Schema({
       type: String
     }
   },
+  // Broker image file path
+  brokerImage: {
+    type: String,
+    default: null
+  },
   status: {
     type: String,
     enum: ['active', 'inactive'],

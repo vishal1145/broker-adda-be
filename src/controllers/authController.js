@@ -4,6 +4,7 @@ import CustomerDetail from '../models/CustomerDetail.js';
 import Region from '../models/Region.js';
 import { generateToken, generateOTP } from '../utils/jwt.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
+import { getFileUrl } from '../middleware/upload.js';
 
 // Temporary OTP storage (in production, use Redis)
 const tempOTPStorage = new Map();
@@ -461,6 +462,7 @@ export const verifyOTP = async (req, res) => {
 export const completeProfile = async (req, res) => {
   try {
     const { phone, name, email, ...roleSpecificData } = req.body;
+    const files = req.files;
 
     const user = await User.findOne({ phone });
     if (!user) {
@@ -523,6 +525,26 @@ export const completeProfile = async (req, res) => {
         brokerDetail.name = name;
         brokerDetail.email = email;
         brokerDetail.phone = phone;
+
+        // Process uploaded files if any
+        if (files) {
+          // Process kycDocs (PDF files) - update existing kycDocs field
+          if (files.aadhar) {
+            brokerDetail.kycDocs.aadhar = files.aadhar[0].path;
+          }
+          if (files.pan) {
+            brokerDetail.kycDocs.pan = files.pan[0].path;
+          }
+          if (files.gst) {
+            brokerDetail.kycDocs.gst = files.gst[0].path;
+          }
+
+          // Process broker image
+          if (files.brokerImage) {
+            brokerDetail.brokerImage = files.brokerImage[0].path;
+          }
+        }
+
         await brokerDetail.save();
         console.log('Broker details updated successfully');
       } else {
@@ -534,6 +556,26 @@ export const completeProfile = async (req, res) => {
           phone: phone,
           ...roleSpecificData.brokerDetails
         });
+
+        // Process uploaded files if any
+        if (files) {
+          // Process kycDocs (PDF files) - update existing kycDocs field
+          if (files.aadhar) {
+            newBrokerDetail.kycDocs.aadhar = files.aadhar[0].path;
+          }
+          if (files.pan) {
+            newBrokerDetail.kycDocs.pan = files.pan[0].path;
+          }
+          if (files.gst) {
+            newBrokerDetail.kycDocs.gst = files.gst[0].path;
+          }
+
+          // Process broker image
+          if (files.brokerImage) {
+            newBrokerDetail.brokerImage = files.brokerImage[0].path;
+          }
+        }
+
         await newBrokerDetail.save();
         console.log('Broker details created successfully');
       }
@@ -559,6 +601,13 @@ export const completeProfile = async (req, res) => {
         customerDetail.name = name;
         customerDetail.email = email;
         customerDetail.phone = phone;
+
+        // Process uploaded files if any
+        if (files && files.customerImage) {
+          customerDetail.images = { ...customerDetail.images };
+          customerDetail.images.customerImage = files.customerImage[0].path;
+        }
+
         await customerDetail.save();
         console.log('Customer details updated successfully');
         console.log('Final savedSearches in DB:', customerDetail.savedSearches);
@@ -571,6 +620,13 @@ export const completeProfile = async (req, res) => {
           phone: phone,
           ...roleSpecificData.customerDetails
         });
+
+        // Process uploaded files if any
+        if (files && files.customerImage) {
+          newCustomerDetail.images = { ...newCustomerDetail.images };
+          newCustomerDetail.images.customerImage = files.customerImage[0].path;
+        }
+
         await newCustomerDetail.save();
         console.log('Customer details created successfully');
       }
@@ -580,7 +636,8 @@ export const completeProfile = async (req, res) => {
     user.tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     await user.save();
 
-    return successResponse(res, 'Profile completed successfully', {
+    // Prepare response data
+    const responseData = {
       user: {
         id: user._id,
         name: user.name,
@@ -589,12 +646,47 @@ export const completeProfile = async (req, res) => {
         role: user.role,
         status: user.status
       }
-    });
+    };
+
+    // Add file URLs to response if files were uploaded
+    if (user.role === 'broker') {
+      const brokerDetail = await BrokerDetail.findOne({ userId: user._id });
+      if (brokerDetail) {
+        responseData.files = {};
+        
+        if (brokerDetail.kycDocs) {
+          responseData.files.kycDocs = {};
+          Object.keys(brokerDetail.kycDocs).forEach(key => {
+            if (brokerDetail.kycDocs[key]) {
+              responseData.files.kycDocs[key] = getFileUrl(req, brokerDetail.kycDocs[key]);
+            }
+          });
+        }
+
+        if (brokerDetail.brokerImage) {
+          responseData.files.brokerImage = getFileUrl(req, brokerDetail.brokerImage);
+        }
+      }
+    } else if (user.role === 'customer') {
+      const customerDetail = await CustomerDetail.findOne({ userId: user._id });
+      if (customerDetail && customerDetail.images) {
+        responseData.files = {};
+        responseData.files.images = {};
+        Object.keys(customerDetail.images).forEach(key => {
+          if (customerDetail.images[key]) {
+            responseData.files.images[key] = getFileUrl(req, customerDetail.images[key]);
+          }
+        });
+      }
+    }
+
+    return successResponse(res, 'Profile completed successfully', responseData);
 
   } catch (error) {
     return serverError(res, error);
   }
 };
+
 
 // Resend OTP
 export const resendOTP = async (req, res) => {

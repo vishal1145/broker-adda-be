@@ -64,6 +64,13 @@ const customerDetailSchema = new mongoose.Schema({
   inquiryCount: {
     type: Number,
     default: 0
+  },
+  // Image file paths for customer
+  images: {
+    customerImage: {
+      type: String,
+      default: null
+    }
   }
 }, {
   timestamps: true

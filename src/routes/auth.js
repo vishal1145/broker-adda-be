@@ -12,6 +12,7 @@ import {
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
 import { detectPlatform } from '../middleware/platform.js';
+import { uploadAllFiles, handleUploadError } from '../middleware/upload.js';
 import {
   phoneRegistrationSchema,
   adminLoginSchema,
@@ -28,7 +29,7 @@ router.post('/register', detectPlatform, validate(phoneRegistrationSchema), phon
 router.post('/admin-login', validate(adminLoginSchema), adminLogin);
 router.post('/login', detectPlatform, validate(phoneLoginSchema), phoneLogin);
 router.post('/verify-otp', validate(otpVerificationSchema), verifyOTP);
-router.post('/complete-profile', validate(completeProfileSchema), completeProfile);
+router.post('/complete-profile', uploadAllFiles, handleUploadError, validate(completeProfileSchema), completeProfile);
 router.post('/resend-otp', validate(resendOtpSchema), resendOTP);
 
 // Protected routes
