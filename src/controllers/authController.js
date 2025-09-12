@@ -17,11 +17,11 @@ export const phoneRegistration = async (req, res) => {
 
     // For Android, auto-assign broker role (ignore provided role)
     if (platform === 'android') {
-      // Check if user already exists
+      // Check if user already exists with this phone number (ANY role)
       const existingUser = await User.findOne({ phone });
       
       if (existingUser) {
-        return errorResponse(res, 'User with this phone number already exists', 400);
+        return errorResponse(res, `Phone number ${phone} is already registered as ${existingUser.role}. Please use a different phone number or login with existing account.`, 409);
       }
 
       // Generate OTP for verification (don't save user yet)
@@ -53,11 +53,16 @@ export const phoneRegistration = async (req, res) => {
       return errorResponse(res, 'Web app only supports broker and customer registration', 400);
     }
 
-    // Check if user already exists
+    // Check if user already exists with this phone number (ANY role)
     const existingUser = await User.findOne({ phone });
 
     if (existingUser) {
-      return errorResponse(res, 'User with this phone number already exists', 400);
+      return errorResponse(res, `Phone number ${phone} is already registered as ${existingUser.role}. Please use a different phone number or login with existing account.`, 409);
+    }
+
+    // Check if OTP is already pending for this phone
+    if (tempOTPStorage.has(phone)) {
+      return errorResponse(res, `OTP already sent to ${phone}. Please wait for verification or try again after 10 minutes.`, 429);
     }
 
     // Generate OTP for verification (don't save user yet)
@@ -254,6 +259,14 @@ export const verifyOTP = async (req, res) => {
 
     // Handle registration flow
     if (tempData.type === 'registration') {
+      // Check if user already exists (double-check)
+      const existingUser = await User.findOne({ phone });
+      
+      if (existingUser) {
+        tempOTPStorage.delete(phone);
+        return errorResponse(res, `Phone number ${phone} is already registered as ${existingUser.role}. Please login instead.`, 409);
+      }
+
       // Create user only after OTP verification
       const user = new User({
         phone: phone,
