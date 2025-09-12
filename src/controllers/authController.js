@@ -61,9 +61,9 @@ export const phoneRegistration = async (req, res) => {
     }
 
     // Check if OTP is already pending for this phone
-    if (tempOTPStorage.has(phone)) {
-      return errorResponse(res, `OTP already sent to ${phone}. Please wait for verification or try again after 10 minutes.`, 429);
-    }
+    // if (tempOTPStorage.has(phone)) {
+    //   return errorResponse(res, `OTP already sent to ${phone}. Please wait for verification or try again after 10 minutes.`, 429);
+    // }
 
     // Generate OTP for verification (don't save user yet)
     const otp = generateOTP();
@@ -726,7 +726,13 @@ export const resendOTP = async (req, res) => {
     // TODO: Send OTP via SMS
     console.log(`New OTP for ${phone}: ${otp}`);
 
-    return successResponse(res, 'OTP sent successfully');
+    return successResponse(res, 'OTP sent successfully', {
+      phone: phone,
+      role: existingTempData.role,
+      platform: existingTempData.platform,
+      type: existingTempData.type,
+      otp: otp // Include OTP in response for testing
+    });
 
   } catch (error) {
     return serverError(res, error);
