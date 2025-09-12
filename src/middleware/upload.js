@@ -32,20 +32,10 @@ const storage = multer.diskStorage({
   }
 });
 
-// File filter function
+// File filter function - Allow all file types
 const fileFilter = (req, file, cb) => {
-  // Allow PDF files for keydocs
-  if (file.fieldname.includes('keydocs') && file.mimetype === 'application/pdf') {
-    cb(null, true);
-  }
-  // Allow image files for images
-  else if (file.fieldname.includes('image') && file.mimetype.startsWith('image/')) {
-    cb(null, true);
-  }
-  // Reject other file types
-  else {
-    cb(new Error(`Invalid file type for ${file.fieldname}. Only PDF files allowed for keydocs and images for image fields.`), false);
-  }
+  // Allow all file types for all fields
+  cb(null, true);
 };
 
 // Configure multer
