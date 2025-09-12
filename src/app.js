@@ -16,36 +16,23 @@ const app = express();
 
 // Middleware
 app.use(helmet());
-// CORS configuration
-const corsOptions = {
-  origin: function (origin, callback) {
-    const allowedOrigins = process.env.CORS_ORIGINS ? 
-      process.env.CORS_ORIGINS.split(',') : [
-        'http://localhost:3000', 
-        'http://localhost:3001', 
-        'http://127.0.0.1:3000',
-        'https://broker-adda.algofolks.com',
-        'https://admin.broker-adda.algofolks.com',
-        'https://broker-adda-be.algofolks.com'
-      ];
-    
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+// CORS configuration - More permissive for production
+app.use(cors({
+  origin: [
+    'http://localhost:3000', 
+    'http://localhost:3001', 
+    'http://127.0.0.1:3000',
+    'https://broker-adda.algofolks.com',
+    'https://admin.broker-adda.algofolks.com',
+    'https://broker-adda-be.algofolks.com',
+    /\.algofolks\.com$/  // Allow all subdomains of algofolks.com
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  exposedHeaders: ['Content-Disposition']
-};
-
-app.use(cors(corsOptions));
+  exposedHeaders: ['Content-Disposition'],
+  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
+}));
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(express.json({ limit: '10mb' }));
