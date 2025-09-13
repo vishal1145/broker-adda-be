@@ -22,7 +22,7 @@ app.use(cors({
     'http://localhost:3000', 
     'http://localhost:3001', 
     'http://localhost:9090',
-    'http://localhost:4189',
+    'http://localhost:9078',
     'https://broker-adda.algofolks.com',
     'https://admin.broker-adda.algofolks.com',
     'https://broker-adda-be.algofolks.com',
