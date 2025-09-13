@@ -16,21 +16,11 @@ const app = express();
 
 // Middleware
 app.use(helmet());
-// CORS configuration - More permissive for production
+// CORS configuration - Allow all origins and ports
 app.use(cors({
-  origin: [
-    'http://localhost:3000', 
-    'http://localhost:3001', 
-    'http://localhost:9090',
-    'http://localhost:9078',
-    'https://87f643f975b2.ngrok-free.app',
-    'https://broker-adda.algofolks.com',
-    'https://admin.broker-adda.algofolks.com',
-    'https://broker-adda-be.algofolks.com',
-    /\.algofolks\.com$/  // Allow all subdomains of algofolks.com
-  ],
+  origin: true, // Allow all origins
   credentials: true,
-  methods: ['GET', 'POST', 'PUT','PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   exposedHeaders: ['Content-Disposition'],
   optionsSuccessStatus: 200 // Some legacy browsers choke on 204
@@ -41,11 +31,11 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Handle preflight requests manually
+// Handle preflight requests manually - Allow all origins
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT,PATCH, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Max-Age', '86400'); // 24 hours
