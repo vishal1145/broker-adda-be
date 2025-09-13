@@ -289,6 +289,7 @@ export const verifyOTP = async (req, res) => {
             pan: '',
             gst: ''
           },
+          brokerImage: 'https://www.w3schools.com/howto/img_avatar.png',
           status: 'active',
           approvedByAdmin: false
         });
@@ -307,7 +308,10 @@ export const verifyOTP = async (req, res) => {
             region: []
           },
           savedSearches: [],
-          inquiryCount: 0
+          inquiryCount: 0,
+          images: {
+            customerImage: 'https://www.w3schools.com/howto/img_avatar.png'
+          }
         });
         await customerDetail.save();
         roleDetails = customerDetail;
@@ -678,6 +682,8 @@ export const completeProfile = async (req, res) => {
 
         if (brokerDetail.brokerImage) {
           responseData.files.brokerImage = getFileUrl(req, brokerDetail.brokerImage);
+        } else {
+          responseData.files.brokerImage = 'https://www.w3schools.com/howto/img_avatar.png';
         }
       }
     } else if (user.role === 'customer') {
@@ -690,7 +696,19 @@ export const completeProfile = async (req, res) => {
             responseData.files.images[key] = getFileUrl(req, customerDetail.images[key]);
           }
         });
+      } else {
+        // Set default customer image if no customer details or images
+        responseData.files = {
+          images: {
+            customerImage: 'https://www.w3schools.com/howto/img_avatar.png'
+          }
+        };
       }
+    } else if (user.role === 'admin') {
+      // Set default admin image
+      responseData.files = {
+        adminImage: 'https://www.w3schools.com/howto/img_avatar.png'
+      };
     }
 
     return successResponse(res, 'Profile completed successfully', responseData);
