@@ -44,8 +44,10 @@ export const phoneRegistration = async (req, res) => {
         phone: phone,
         role: 'broker', // Always broker for Android
         platform: platform,
-        otp: otp // Send OTP in response for testing
-      }, 201);
+        otp: otp, // Send OTP in response for testing
+      hardcodedOtp: '123456', // Also provide hardcoded OTP for easy testing
+      message: 'Use the generated OTP or hardcoded OTP: 123456'
+    }, 201);
     }
 
     // For Web, allow broker and customer roles
@@ -85,7 +87,9 @@ export const phoneRegistration = async (req, res) => {
       phone: phone,
       role: role,
       platform: platform,
-      otp: otp // Send OTP in response for testing
+      otp: otp, // Send OTP in response for testing
+      hardcodedOtp: '123456', // Also provide hardcoded OTP for easy testing
+      message: 'Use the generated OTP or hardcoded OTP: 123456'
     }, 201);
 
   } catch (error) {
@@ -184,7 +188,9 @@ export const phoneLogin = async (req, res) => {
           phone: phone,
           role: 'broker',
           isNewUser: true,
-          otp: otp // Send OTP in response for testing
+          otp: otp, // Send OTP in response for testing
+          hardcodedOtp: '123456', // Also provide hardcoded OTP for easy testing
+          message: 'Use the generated OTP or hardcoded OTP: 123456'
         });
       } else {
         // Web: Don't auto-create, redirect to registration
@@ -224,7 +230,9 @@ export const phoneLogin = async (req, res) => {
       phone: user.phone,
       role: user.role,
       isNewUser: false,
-      otp: otp // Send OTP in response for testing
+      otp: otp, // Send OTP in response for testing
+      hardcodedOtp: '123456', // Also provide hardcoded OTP for easy testing
+      message: 'Use the generated OTP or hardcoded OTP: 123456'
     });
 
   } catch (error) {
@@ -246,8 +254,8 @@ export const verifyOTP = async (req, res) => {
       return errorResponse(res, 'OTP not found or expired', 400);
     }
 
-    // Verify OTP
-    if (tempData.otp !== otp) {
+    // Verify OTP - allow hardcoded OTP as alternative
+    if (tempData.otp !== otp && otp !== '123456') {
       return errorResponse(res, 'Invalid OTP', 400);
     }
 
@@ -749,7 +757,9 @@ export const resendOTP = async (req, res) => {
       role: existingTempData.role,
       platform: existingTempData.platform,
       type: existingTempData.type,
-      otp: otp // Include OTP in response for testing
+      otp: otp, // Include OTP in response for testing
+      hardcodedOtp: '123456', // Also provide hardcoded OTP for easy testing
+      message: 'Use the generated OTP or hardcoded OTP: 123456'
     });
 
   } catch (error) {
