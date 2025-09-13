@@ -23,7 +23,7 @@ app.use(cors({
     'http://localhost:3001', 
     'http://localhost:9090',
     'http://localhost:9078',
-    ' https://87f643f975b2.ngrok-free.app',
+    'https://87f643f975b2.ngrok-free.app',
     'https://broker-adda.algofolks.com',
     'https://admin.broker-adda.algofolks.com',
     'https://broker-adda-be.algofolks.com',
