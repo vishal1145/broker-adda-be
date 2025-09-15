@@ -57,6 +57,9 @@ app.use('/uploads', (req, res, next) => {
   res.header('X-Content-Type-Options', 'nosniff');
   res.header('X-Frame-Options', 'SAMEORIGIN');
   
+  // Allow cross-origin resource sharing for images
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);

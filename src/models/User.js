@@ -31,7 +31,7 @@ const userSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['active', 'suspended', 'pending'],
+    enum: ['active', 'suspended', 'pending', 'inactive'],
     default: 'pending'
   },
   otp: {
