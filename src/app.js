@@ -15,7 +15,19 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:", "http:"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      fontSrc: ["'self'", "https:", "data:"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: []
+    }
+  }
+}));
 // CORS configuration - Allow all origins and ports
 app.use(cors({
   origin: true, // Allow all origins
@@ -43,6 +55,7 @@ app.use('/uploads', (req, res, next) => {
   // Additional headers for proper image serving
   res.header('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
   res.header('X-Content-Type-Options', 'nosniff');
+  res.header('X-Frame-Options', 'SAMEORIGIN');
   
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
@@ -55,13 +68,13 @@ app.use('/uploads', (req, res, next) => {
   setHeaders: (res, path) => {
     // Set proper content type for images
     if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
-      res.setHeader('Content-Type', 'images/jpeg');
+      res.setHeader('Content-Type', 'image/jpeg');
     } else if (path.endsWith('.png')) {
-      res.setHeader('Content-Type', 'images/png');
+      res.setHeader('Content-Type', 'image/png');
     } else if (path.endsWith('.gif')) {
-      res.setHeader('Content-Type', 'images/gif');
+      res.setHeader('Content-Type', 'image/gif');
     } else if (path.endsWith('.webp')) {
-      res.setHeader('Content-Type', 'images/webp');
+      res.setHeader('Content-Type', 'image/webp');
     } else if (path.endsWith('.pdf')) {
       res.setHeader('Content-Type', 'application/pdf');
     }

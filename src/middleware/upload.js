@@ -100,14 +100,24 @@ export const getFileUrl = (req, filePath) => {
     return filePath;
   }
   
+  // Determine base URL - use production URL if available, otherwise use request host
+  let baseUrl;
+  if (process.env.BASE_URL) {
+    baseUrl = process.env.BASE_URL;
+  } else if (process.env.NODE_ENV === 'production') {
+    // Hardcoded production URL as fallback
+    baseUrl = 'https://broker-adda-be.algofolks.com';
+  } else {
+    // Development - use request host
+    baseUrl = `${req.protocol}://${req.get('host')}`;
+  }
+  
   // If it's a relative path starting with /uploads, just add the base URL
   if (filePath.startsWith('/uploads/')) {
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
     return `${baseUrl}${filePath}`;
   }
   
   // If it's an absolute file path, convert to relative URL
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
   const relativePath = filePath.replace(/\\/g, '/').replace(/.*\/uploads\//, '/uploads/');
   return `${baseUrl}${relativePath}`;
 };
