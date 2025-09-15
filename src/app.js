@@ -31,21 +31,42 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Handle preflight requests manually - Allow all origins
-app.use('/uploads',(req, res, next) => {
+// Serve static files from uploads directory with proper CORS headers
+app.use('/uploads', (req, res, next) => {
+  // Set CORS headers for static files
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Content-Disposition');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  
+  // Additional headers for proper image serving
+  res.header('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+  res.header('X-Content-Type-Options', 'nosniff');
+  
+  // Handle preflight requests
   if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Max-Age', '86400'); // 24 hours
     return res.sendStatus(200);
   }
+  
   next();
-});
-
-// Serve static files from uploads directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+}, express.static(path.join(__dirname, 'uploads'), {
+  // Additional static file options
+  setHeaders: (res, path) => {
+    // Set proper content type for images
+    if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
+      res.setHeader('Content-Type', 'images/jpeg');
+    } else if (path.endsWith('.png')) {
+      res.setHeader('Content-Type', 'images/png');
+    } else if (path.endsWith('.gif')) {
+      res.setHeader('Content-Type', 'images/gif');
+    } else if (path.endsWith('.webp')) {
+      res.setHeader('Content-Type', 'images/webp');
+    } else if (path.endsWith('.pdf')) {
+      res.setHeader('Content-Type', 'application/pdf');
+    }
+  }
+}));
 
 // Routes
 app.use('/api', routes);
