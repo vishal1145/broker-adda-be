@@ -2,6 +2,7 @@ import BrokerDetail from '../models/BrokerDetail.js';
 import User from '../models/User.js';
 import Region from '../models/Region.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
+import { getFileUrl } from '../middleware/upload.js';
 
 // Get all brokers (with pagination and filtering) - All roles allowed
 export const getAllBrokers = async (req, res) => {
@@ -54,8 +55,33 @@ export const getAllBrokers = async (req, res) => {
     const totalBrokers = await BrokerDetail.countDocuments(filter);
     const totalPages = Math.ceil(totalBrokers / parseInt(limit));
 
+    // Convert file paths to URLs
+    const brokersWithUrls = brokers.map(broker => {
+      const brokerObj = broker.toObject();
+      
+      // Convert kycDocs file paths to URLs
+      if (brokerObj.kycDocs) {
+        if (brokerObj.kycDocs.aadhar) {
+          brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
+        }
+        if (brokerObj.kycDocs.pan) {
+          brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+        }
+        if (brokerObj.kycDocs.gst) {
+          brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
+        }
+      }
+      
+      // Convert broker image path to URL
+      if (brokerObj.brokerImage) {
+        brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
+      }
+      
+      return brokerObj;
+    });
+
     return successResponse(res, 'Brokers retrieved successfully', {
-      brokers,
+      brokers: brokersWithUrls,
       pagination: {
         currentPage: parseInt(page),
         totalPages,
@@ -83,7 +109,28 @@ export const getBrokerById = async (req, res) => {
       return errorResponse(res, 'Broker not found', 404);
     }
 
-    return successResponse(res, 'Broker details retrieved successfully', { broker });
+    // Convert file paths to URLs
+    const brokerObj = broker.toObject();
+    
+    // Convert kycDocs file paths to URLs
+    if (brokerObj.kycDocs) {
+      if (brokerObj.kycDocs.aadhar) {
+        brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
+      }
+      if (brokerObj.kycDocs.pan) {
+        brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+      }
+      if (brokerObj.kycDocs.gst) {
+        brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
+      }
+    }
+    
+    // Convert broker image path to URL
+    if (brokerObj.brokerImage) {
+      brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
+    }
+
+    return successResponse(res, 'Broker details retrieved successfully', { broker: brokerObj });
 
   } catch (error) {
     return serverError(res, error);
@@ -115,8 +162,29 @@ export const approveBroker = async (req, res) => {
     const updatedBroker = await BrokerDetail.findById(id)
       .populate('region', 'name description');
 
+    // Convert file paths to URLs
+    const brokerObj = updatedBroker.toObject();
+    
+    // Convert kycDocs file paths to URLs
+    if (brokerObj.kycDocs) {
+      if (brokerObj.kycDocs.aadhar) {
+        brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
+      }
+      if (brokerObj.kycDocs.pan) {
+        brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+      }
+      if (brokerObj.kycDocs.gst) {
+        brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
+      }
+    }
+    
+    // Convert broker image path to URL
+    if (brokerObj.brokerImage) {
+      brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
+    }
+
     return successResponse(res, 'Broker approved successfully', { 
-      broker: updatedBroker 
+      broker: brokerObj 
     });
 
   } catch (error) {

@@ -555,18 +555,18 @@ export const completeProfile = async (req, res) => {
         if (files) {
           // Process kycDocs (PDF files) - update existing kycDocs field
           if (files.aadhar) {
-            brokerDetail.kycDocs.aadhar = files.aadhar[0].path;
+            brokerDetail.kycDocs.aadhar = getFileUrl(req, files.aadhar[0].path);
           }
           if (files.pan) {
-            brokerDetail.kycDocs.pan = files.pan[0].path;
+            brokerDetail.kycDocs.pan = getFileUrl(req, files.pan[0].path);
           }
           if (files.gst) {
-            brokerDetail.kycDocs.gst = files.gst[0].path;
+            brokerDetail.kycDocs.gst = getFileUrl(req, files.gst[0].path);
           }
 
           // Process broker image
           if (files.brokerImage) {
-            brokerDetail.brokerImage = files.brokerImage[0].path;
+            brokerDetail.brokerImage = getFileUrl(req, files.brokerImage[0].path);
           }
         }
 
@@ -586,18 +586,18 @@ export const completeProfile = async (req, res) => {
         if (files) {
           // Process kycDocs (PDF files) - update existing kycDocs field
           if (files.aadhar) {
-            newBrokerDetail.kycDocs.aadhar = files.aadhar[0].path;
+            newBrokerDetail.kycDocs.aadhar = getFileUrl(req, files.aadhar[0].path);
           }
           if (files.pan) {
-            newBrokerDetail.kycDocs.pan = files.pan[0].path;
+            newBrokerDetail.kycDocs.pan = getFileUrl(req, files.pan[0].path);
           }
           if (files.gst) {
-            newBrokerDetail.kycDocs.gst = files.gst[0].path;
+            newBrokerDetail.kycDocs.gst = getFileUrl(req, files.gst[0].path);
           }
 
           // Process broker image
           if (files.brokerImage) {
-            newBrokerDetail.brokerImage = files.brokerImage[0].path;
+            newBrokerDetail.brokerImage = getFileUrl(req, files.brokerImage[0].path);
           }
         }
 
@@ -630,7 +630,7 @@ export const completeProfile = async (req, res) => {
         // Process uploaded files if any
         if (files && files.customerImage) {
           customerDetail.images = { ...customerDetail.images };
-          customerDetail.images.customerImage = files.customerImage[0].path;
+          customerDetail.images.customerImage = getFileUrl(req, files.customerImage[0].path);
         }
 
         await customerDetail.save();
@@ -649,7 +649,7 @@ export const completeProfile = async (req, res) => {
         // Process uploaded files if any
         if (files && files.customerImage) {
           newCustomerDetail.images = { ...newCustomerDetail.images };
-          newCustomerDetail.images.customerImage = files.customerImage[0].path;
+          newCustomerDetail.images.customerImage = getFileUrl(req, files.customerImage[0].path);
         }
 
         await newCustomerDetail.save();

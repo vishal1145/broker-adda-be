@@ -95,6 +95,18 @@ export const handleUploadError = (error, req, res, next) => {
 export const getFileUrl = (req, filePath) => {
   if (!filePath) return null;
   
+  // If it's already a complete URL (starts with http/https), return as is
+  if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+    return filePath;
+  }
+  
+  // If it's a relative path starting with /uploads, just add the base URL
+  if (filePath.startsWith('/uploads/')) {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    return `${baseUrl}${filePath}`;
+  }
+  
+  // If it's an absolute file path, convert to relative URL
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const relativePath = filePath.replace(/\\/g, '/').replace(/.*\/uploads\//, '/uploads/');
   return `${baseUrl}${relativePath}`;
