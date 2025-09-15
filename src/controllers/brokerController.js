@@ -46,7 +46,7 @@ export const getAllBrokers = async (req, res) => {
 
     // Get brokers with populated region data
     const brokers = await BrokerDetail.find(filter)
-      .populate('region', 'name description')
+      .populate('region', 'name description city state centerLocation radius')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -103,7 +103,7 @@ export const getBrokerById = async (req, res) => {
     const { id } = req.params;
 
     const broker = await BrokerDetail.findById(id)
-      .populate('region', 'name description');
+      .populate('region', 'name description city state centerLocation radius');
 
     if (!broker) {
       return errorResponse(res, 'Broker not found', 404);
@@ -160,7 +160,7 @@ export const approveBroker = async (req, res) => {
 
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)
-      .populate('region', 'name description');
+      .populate('region', 'name description name description city state centerLocation radius');
 
     // Convert file paths to URLs
     const brokerObj = updatedBroker.toObject();
@@ -217,7 +217,7 @@ export const rejectBroker = async (req, res) => {
 
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)
-      .populate('region', 'name description');
+      .populate('region', 'name description name description city state centerLocation radius');
 
     return successResponse(res, 'Broker rejected successfully', { 
       broker: updatedBroker 
