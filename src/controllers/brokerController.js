@@ -24,7 +24,7 @@ export const getAllBrokers = async (req, res) => {
     }
     
     if (approvedByAdmin !== undefined) {
-      filter.approvedByAdmin = approvedByAdmin === 'true';
+      filter.approvedByAdmin = approvedByAdmin;
     }
     
     if (regionId) {
@@ -150,7 +150,7 @@ export const approveBroker = async (req, res) => {
     }
 
     // Update broker approval status
-    broker.approvedByAdmin = true;
+    broker.approvedByAdmin = 'approved';
     await broker.save();
 
     // Update user status to active if it was pending
@@ -205,7 +205,7 @@ export const rejectBroker = async (req, res) => {
     }
 
     // Update broker rejection status
-    broker.approvedByAdmin = false;
+    broker.approvedByAdmin = 'rejected';
     await broker.save();
 
     // Update user status to suspended if needed
@@ -217,14 +217,36 @@ export const rejectBroker = async (req, res) => {
 
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)
-      .populate('region', 'name description name description city state centerLocation radius');
+      .populate('region', 'name description city state centerLocation radius');
+
+    // Convert file paths to URLs
+    const brokerObj = updatedBroker.toObject();
+    
+    // Convert kycDocs file paths to URLs
+    if (brokerObj.kycDocs) {
+      if (brokerObj.kycDocs.aadhar) {
+        brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
+      }
+      if (brokerObj.kycDocs.pan) {
+        brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+      }
+      if (brokerObj.kycDocs.gst) {
+        brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
+      }
+    }
+    
+    // Convert broker image path to URL
+    if (brokerObj.brokerImage) {
+      brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
+    }
 
     return successResponse(res, 'Broker rejected successfully', { 
-      broker: updatedBroker 
+      broker: brokerObj 
     });
 
   } catch (error) {
     return serverError(res, error);
   }
 };
+
 
