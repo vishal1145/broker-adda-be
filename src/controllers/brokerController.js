@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import Region from '../models/Region.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 import { getFileUrl } from '../middleware/upload.js';
+import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../utils/brokerCount.js';
 
 // Get all brokers (with pagination and filtering) - All roles allowed
 export const getAllBrokers = async (req, res) => {
@@ -158,6 +159,11 @@ export const approveBroker = async (req, res) => {
       await User.findByIdAndUpdate(broker.userId, { status: 'active' });
     }
 
+    // Update broker count for assigned regions
+    if (broker.region && broker.region.length > 0) {
+      await updateMultipleRegionBrokerCounts(broker.region);
+    }
+
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)
       .populate('region', 'name description name description city state centerLocation radius');
@@ -213,6 +219,11 @@ export const rejectBroker = async (req, res) => {
       await User.findByIdAndUpdate(broker.userId, { 
         status: 'inactive' 
       });
+    }
+
+    // Update broker count for assigned regions
+    if (broker.region && broker.region.length > 0) {
+      await updateMultipleRegionBrokerCounts(broker.region);
     }
 
     // Get updated broker with populated data

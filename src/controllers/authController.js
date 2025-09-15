@@ -5,6 +5,7 @@ import Region from '../models/Region.js';
 import { generateToken, generateOTP } from '../utils/jwt.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 import { getFileUrl } from '../middleware/upload.js';
+import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../utils/brokerCount.js';
 
 // Temporary OTP storage (in production, use Redis)
 const tempOTPStorage = new Map();
@@ -603,6 +604,11 @@ export const completeProfile = async (req, res) => {
 
         await newBrokerDetail.save();
         console.log('Broker details created successfully');
+        
+        // Update broker count for assigned regions
+        if (newBrokerDetail.region && newBrokerDetail.region.length > 0) {
+          await updateMultipleRegionBrokerCounts(newBrokerDetail.region);
+        }
       }
     }
 

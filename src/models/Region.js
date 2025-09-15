@@ -34,6 +34,11 @@ const regionSchema = new mongoose.Schema({
   radius: {
     type: Number,
     required: [true, 'Radius is required']
+  },
+  brokerCount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Broker count cannot be negative']
   }
 }, {
   timestamps: true

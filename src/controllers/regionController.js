@@ -1,4 +1,5 @@
 import Region from '../models/Region.js';
+import BrokerDetail from '../models/BrokerDetail.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 
 // Get all regions
