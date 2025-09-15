@@ -28,14 +28,21 @@ export const getRegionById = async (req, res) => {
 // Create new region
 export const createRegion = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, state, city, centerLocation, radius } = req.body;
     
     const existingRegion = await Region.findOne({ name });
     if (existingRegion) {
       return errorResponse(res, 'Region with this name already exists', 400);
     }
     
-    const region = new Region({ name, description });
+    const region = new Region({ 
+      name, 
+      description, 
+      state, 
+      city, 
+      centerLocation, 
+      radius 
+    });
     await region.save();
     
     return successResponse(res, 'Region created successfully', { region }, 201);
@@ -48,7 +55,7 @@ export const createRegion = async (req, res) => {
 export const updateRegion = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, state, city, centerLocation, radius } = req.body;
     
     const region = await Region.findById(id);
     if (!region) {
@@ -64,6 +71,10 @@ export const updateRegion = async (req, res) => {
     
     if (name) region.name = name;
     if (description !== undefined) region.description = description;
+    if (state) region.state = state;
+    if (city) region.city = city;
+    if (centerLocation) region.centerLocation = centerLocation;
+    if (radius !== undefined) region.radius = radius;
     
     await region.save();
     return successResponse(res, 'Region updated successfully', { region });
