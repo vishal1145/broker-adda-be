@@ -98,13 +98,15 @@ export const getAllBrokers = async (req, res) => {
   }
 };
 
-// Get single broker details for admin
+// Get single broker details by userId
 export const getBrokerById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const broker = await BrokerDetail.findById(id)
-      .populate('region', 'name description city state centerLocation radius');
+    // Find broker by userId instead of _id
+    const broker = await BrokerDetail.findOne({ userId: id })
+      .populate('region', 'name description city state centerLocation radius')
+      .populate('userId', 'name email phone status');
 
     if (!broker) {
       return errorResponse(res, 'Broker not found', 404);
