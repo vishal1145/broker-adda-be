@@ -781,7 +781,7 @@ export const getProfile = async (req, res) => {
     let additionalDetails = null;
     
     if (user.role === 'broker') {
-      additionalDetails = await BrokerDetail.findOne({ userId: user._id }).populate('regionId', 'name description');
+      additionalDetails = await BrokerDetail.findOne({ userId: user._id }).populate('region', 'name description city state centerLocation radius');
     } else if (user.role === 'customer') {
       additionalDetails = await CustomerDetail.findOne({ userId: user._id }).populate('preferences.region', 'name description');
     }
