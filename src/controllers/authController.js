@@ -300,7 +300,7 @@ export const verifyOTP = async (req, res) => {
           },
           brokerImage: 'https://www.w3schools.com/howto/img_avatar.png',
           status: 'active',
-          approvedByAdmin: 'pending'
+          approvedByAdmin: 'unblocked'
         });
         await brokerDetail.save();
         roleDetails = brokerDetail;
@@ -400,7 +400,7 @@ export const verifyOTP = async (req, res) => {
               gst: ''
             },
             status: 'active',
-            approvedByAdmin: 'pending'
+            approvedByAdmin: 'unblocked'
           });
           await brokerDetail.save();
           console.log('Broker details created during login OTP verification');

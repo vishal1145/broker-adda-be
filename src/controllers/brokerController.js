@@ -153,7 +153,7 @@ export const approveBroker = async (req, res) => {
     }
 
     // Update broker approval status
-    broker.approvedByAdmin = 'approved';
+    broker.approvedByAdmin = 'unblocked';
     await broker.save();
 
     // Update user status to active if it was pending
@@ -191,7 +191,7 @@ export const approveBroker = async (req, res) => {
       brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
     }
 
-    return successResponse(res, 'Broker approved successfully', { 
+    return successResponse(res, 'Broker unblocked successfully', { 
       broker: brokerObj 
     });
 
@@ -213,7 +213,7 @@ export const rejectBroker = async (req, res) => {
     }
 
     // Update broker rejection status
-    broker.approvedByAdmin = 'rejected';
+    broker.approvedByAdmin = 'blocked';
     await broker.save();
 
     // Update user status to suspended if needed
@@ -253,7 +253,7 @@ export const rejectBroker = async (req, res) => {
       brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
     }
 
-    return successResponse(res, 'Broker rejected successfully', { 
+    return successResponse(res, 'Broker blocked successfully', { 
       broker: brokerObj 
     });
 

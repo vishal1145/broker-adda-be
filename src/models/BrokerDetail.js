@@ -53,8 +53,8 @@ const brokerDetailSchema = new mongoose.Schema({
   },
   approvedByAdmin: {
     type: String,
-    enum: ['pending', 'approved', 'rejected'],
-    default: 'pending'
+    enum: ['blocked', 'unblocked'],
+    default: 'unblocked'
   },
   adminNotes: {
     type: String,
