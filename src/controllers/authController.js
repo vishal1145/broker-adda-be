@@ -519,8 +519,8 @@ export const completeProfile = async (req, res) => {
       }
     }
 
-    // Validate region existence for customer
-    if (user.role === 'customer' && roleSpecificData.customerDetails?.preferences?.region) {
+    // Validate region existence for customer (only if region is provided)
+    if (user.role === 'customer' && roleSpecificData.customerDetails?.preferences?.region && roleSpecificData.customerDetails.preferences.region.length > 0) {
       const regionIds = roleSpecificData.customerDetails.preferences.region;
       for (const regionId of regionIds) {
         const region = await Region.findById(regionId);

@@ -25,7 +25,7 @@ export const completeProfileSchema = Joi.object({
       ).min(1).required(),
       region: Joi.array().items(
         Joi.string().pattern(/^[0-9a-fA-F]{24}$/)
-      ).min(1).required()
+      ).optional()
     }).required()
   }).unknown(true).optional(),
   // File upload fields (handled by multer, validated here as optional)
@@ -65,6 +65,6 @@ export const customerDetailSchema = Joi.object({
     ).min(1).required(),
     region: Joi.array().items(
       Joi.string().pattern(/^[0-9a-fA-F]{24}$/)
-    ).min(1).required()
+    ).optional()
   }).required()
 }).unknown(true);
