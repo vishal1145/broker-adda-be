@@ -34,7 +34,6 @@ export const getAllCustomers = async (req, res) => {
         name: customer.name,
         email: customer.email,
         phone: customer.phone,
-        gender: customer.gender,
         role: customer.role,
         status: customer.status,
         createdAt: customer.createdAt,
@@ -47,6 +46,7 @@ export const getAllCustomers = async (req, res) => {
         .populate('savedSearches.region', 'name description');
 
       if (customerDetail) {
+        data.gender = customerDetail.gender;
         data.preferences = customerDetail.preferences;
         data.savedSearches = customerDetail.savedSearches;
         data.inquiryCount = customerDetail.inquiryCount;
@@ -100,7 +100,6 @@ export const getCustomerById = async (req, res) => {
       name: customer.name,
       email: customer.email,
       phone: customer.phone,
-      gender: customer.gender,
       role: customer.role,
       status: customer.status,
       createdAt: customer.createdAt,
@@ -109,6 +108,7 @@ export const getCustomerById = async (req, res) => {
 
     // Add customer details if available
     if (customerDetail) {
+      responseData.gender = customerDetail.gender;
       responseData.preferences = customerDetail.preferences;
       responseData.savedSearches = customerDetail.savedSearches;
       responseData.inquiryCount = customerDetail.inquiryCount;
