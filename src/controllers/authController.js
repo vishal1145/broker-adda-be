@@ -835,6 +835,36 @@ export const getProfile = async (req, res) => {
   }
 };
 
+// Check if email exists
+export const checkEmailExists = async (req, res) => {
+  try {
+    const { email, userId } = req.query;
+
+    if (!email) {
+      return errorResponse(res, 'Email parameter is required', 400);
+    }
+
+    // Build query to exclude current user if userId is provided
+    let query = { email: email.toLowerCase() };
+    if (userId) {
+      query._id = { $ne: userId };
+    }
+
+    // Check if email exists in database (excluding current user)
+    const existingUser = await User.findOne(query);
+
+    return successResponse(res, 'Email check completed', {
+      email: email,
+      exists: !!existingUser,
+      message: existingUser ? 'Email is already in use by another account' : 'Email is available'
+    });
+
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+
 // Update profile
 export const updateProfile = async (req, res) => {
   try {

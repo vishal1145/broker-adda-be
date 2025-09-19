@@ -7,7 +7,8 @@ import {
   completeProfile,
   resendOTP,
   getProfile,
-  updateProfile
+  updateProfile,
+  checkEmailExists
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
@@ -31,6 +32,7 @@ router.post('/login', detectPlatform, validate(phoneLoginSchema), phoneLogin);
 router.post('/verify-otp', validate(otpVerificationSchema), verifyOTP);
 router.post('/complete-profile', uploadAllFiles, handleUploadError, validate(completeProfileSchema), completeProfile);
 router.post('/resend-otp', validate(resendOtpSchema), resendOTP);
+router.get('/check-email', checkEmailExists);
 
 // Protected routes
 router.get('/profile', authenticate, getProfile);
