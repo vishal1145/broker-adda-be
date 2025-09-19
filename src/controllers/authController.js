@@ -291,7 +291,19 @@ export const verifyOTP = async (req, res) => {
       if (user.role === 'broker') {
         const brokerDetail = new BrokerDetail({
           userId: user._id,
+          gender: 'male', // Default value, will be updated during profile completion
           firmName: '',
+          licenseNumber: '',
+          address: '',
+          state: '',
+          city: '',
+          specializations: [],
+          socialMedia: {
+            linkedin: '',
+            twitter: '',
+            instagram: '',
+            facebook: ''
+          },
           region: [],
           kycDocs: {
             aadhar: '',
@@ -310,6 +322,7 @@ export const verifyOTP = async (req, res) => {
       if (user.role === 'customer') {
         const customerDetail = new CustomerDetail({
           userId: user._id,
+          gender: 'male', // Default value, will be updated during profile completion
           preferences: {
             budgetMin: 0,
             budgetMax: 0,
@@ -392,7 +405,19 @@ export const verifyOTP = async (req, res) => {
         if (!brokerDetail) {
           brokerDetail = new BrokerDetail({
             userId: user._id,
+            gender: 'male', // Default value, will be updated during profile completion
             firmName: '',
+            licenseNumber: '',
+            address: '',
+            state: '',
+            city: '',
+            specializations: [],
+            socialMedia: {
+              linkedin: '',
+              twitter: '',
+              instagram: '',
+              facebook: ''
+            },
             region: [],
             kycDocs: {
               aadhar: '',
@@ -413,6 +438,7 @@ export const verifyOTP = async (req, res) => {
         if (!customerDetail) {
           customerDetail = new CustomerDetail({
             userId: user._id,
+            gender: 'male', // Default value, will be updated during profile completion
             preferences: {
               budgetMin: 0,
               budgetMax: 0,
@@ -580,6 +606,18 @@ export const completeProfile = async (req, res) => {
           name: name,
           email: email,
           phone: phone,
+          gender: roleSpecificData.brokerDetails.gender || 'male', // Default to male if not provided
+          licenseNumber: roleSpecificData.brokerDetails.licenseNumber || '',
+          address: roleSpecificData.brokerDetails.address || '',
+          state: roleSpecificData.brokerDetails.state || '',
+          city: roleSpecificData.brokerDetails.city || '',
+          specializations: roleSpecificData.brokerDetails.specializations || [],
+          socialMedia: {
+            linkedin: roleSpecificData.brokerDetails.socialMedia?.linkedin || '',
+            twitter: roleSpecificData.brokerDetails.socialMedia?.twitter || '',
+            instagram: roleSpecificData.brokerDetails.socialMedia?.instagram || '',
+            facebook: roleSpecificData.brokerDetails.socialMedia?.facebook || ''
+          },
           ...roleSpecificData.brokerDetails
         });
 
@@ -649,6 +687,7 @@ export const completeProfile = async (req, res) => {
           name: name,
           email: email,
           phone: phone,
+          gender: roleSpecificData.customerDetails.gender || 'male', // Default to male if not provided
           ...roleSpecificData.customerDetails
         });
 

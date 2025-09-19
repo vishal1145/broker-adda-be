@@ -21,6 +21,11 @@ const customerDetailSchema = new mongoose.Schema({
     type: String,
     match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number']
   },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other'],
+    required: true
+  },
   preferences: {
     budgetMin: {
       type: Number,

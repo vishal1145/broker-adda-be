@@ -6,7 +6,21 @@ export const completeProfileSchema = Joi.object({
   name: Joi.string().required().min(2).max(50).trim(),
   email: Joi.string().email().required().lowercase(),
   brokerDetails: Joi.object({
+    gender: Joi.string().valid('male', 'female', 'other').required(),
     firmName: Joi.string().required().min(2).max(100).trim(),
+    licenseNumber: Joi.string().optional().max(50).trim(),
+    address: Joi.string().optional().max(500).trim(),
+    state: Joi.string().optional().max(50).trim(),
+    city: Joi.string().optional().max(50).trim(),
+    specializations: Joi.array().items(
+      Joi.string().max(100).trim()
+    ).optional(),
+    socialMedia: Joi.object({
+      linkedin: Joi.string().uri().optional().max(200).trim(),
+      twitter: Joi.string().uri().optional().max(200).trim(),
+      instagram: Joi.string().uri().optional().max(200).trim(),
+      facebook: Joi.string().uri().optional().max(200).trim()
+    }).optional(),
     region: Joi.array().items(
       Joi.string().pattern(/^[0-9a-fA-F]{24}$/)
     ).min(1).required(),
@@ -17,6 +31,7 @@ export const completeProfileSchema = Joi.object({
     }).optional()
   }).optional(),
   customerDetails: Joi.object({
+    gender: Joi.string().valid('male', 'female', 'other').required(),
     preferences: Joi.object({
       budgetMin: Joi.number().min(0).required(),
       budgetMax: Joi.number().min(0).required(),
@@ -39,7 +54,21 @@ export const completeProfileSchema = Joi.object({
 
 // Broker detail validation
 export const brokerDetailSchema = Joi.object({
+  gender: Joi.string().valid('male', 'female', 'other').required(),
   firmName: Joi.string().required().min(2).max(100).trim(),
+  licenseNumber: Joi.string().optional().max(50).trim(),
+  officeAddress: Joi.string().optional().max(500).trim(),
+  state: Joi.string().optional().max(50).trim(),
+  city: Joi.string().optional().max(50).trim(),
+  specializations: Joi.array().items(
+    Joi.string().max(100).trim()
+  ).optional(),
+  socialMedia: Joi.object({
+    linkedin: Joi.string().uri().optional().max(200).trim(),
+    twitter: Joi.string().uri().optional().max(200).trim(),
+    instagram: Joi.string().uri().optional().max(200).trim(),
+    facebook: Joi.string().uri().optional().max(200).trim()
+  }).optional(),
   regionId: Joi.array()
     .items(
       Joi.string()
@@ -57,6 +86,7 @@ export const brokerDetailSchema = Joi.object({
 
 // Customer detail validation
 export const customerDetailSchema = Joi.object({
+  gender: Joi.string().valid('male', 'female', 'other').required(),
   preferences: Joi.object({
     budgetMin: Joi.number().min(0).required(),
     budgetMax: Joi.number().min(0).required(),

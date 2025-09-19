@@ -21,10 +21,62 @@ const brokerDetailSchema = new mongoose.Schema({
     type: String,
     match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number']
   },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other'],
+    required: true
+  },
   firmName: {
     type: String,
     trim: true,
     maxlength: [100, 'Firm name cannot be more than 100 characters']
+  },
+  licenseNumber: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'License number cannot be more than 50 characters']
+  },
+  address: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Office address cannot be more than 500 characters']
+  },
+  state: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'State cannot be more than 50 characters']
+  },
+  city: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'City cannot be more than 50 characters']
+  },
+  specializations: [{
+    type: String,
+    trim: true,
+    maxlength: [100, 'Each specialization cannot be more than 100 characters']
+  }],
+  socialMedia: {
+    linkedin: {
+      type: String,
+      trim: true,
+      maxlength: [200, 'LinkedIn URL cannot be more than 200 characters']
+    },
+    twitter: {
+      type: String,
+      trim: true,
+      maxlength: [200, 'Twitter URL cannot be more than 200 characters']
+    },
+    instagram: {
+      type: String,
+      trim: true,
+      maxlength: [200, 'Instagram URL cannot be more than 200 characters']
+    },
+    facebook: {
+      type: String,
+      trim: true,
+      maxlength: [200, 'Facebook URL cannot be more than 200 characters']
+    }
   },
  region: [{
       type: mongoose.Schema.Types.ObjectId,
