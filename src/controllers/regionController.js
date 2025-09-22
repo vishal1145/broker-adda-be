@@ -2,11 +2,83 @@ import Region from '../models/Region.js';
 import BrokerDetail from '../models/BrokerDetail.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 
-// Get all regions
+// Get all regions with filter and pagination
 export const getAllRegions = async (req, res) => {
   try {
-    const regions = await Region.find().select('-__v');
-    return successResponse(res, 'Regions retrieved successfully', { regions });
+    const { 
+      page = 1, 
+      limit = 10, 
+      search = '', 
+      state = '', 
+      city = '',
+      sortBy = 'name',
+      sortOrder = 'asc'
+    } = req.query;
+
+    // Build filter query
+    let filterQuery = {};
+    
+    // Search filter (searches in name, description, state, city)
+    if (search) {
+      filterQuery.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { state: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // State filter
+    if (state) {
+      filterQuery.state = { $regex: state, $options: 'i' };
+    }
+    
+    // City filter
+    if (city) {
+      filterQuery.city = { $regex: city, $options: 'i' };
+    }
+
+    // Build sort object
+    const sortObj = {};
+    sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+
+    // Get total count for pagination
+    const totalRegions = await Region.countDocuments(filterQuery);
+
+    // Get regions with filter, sort, and pagination
+    const regions = await Region.find(filterQuery)
+      .select('-__v')
+      .sort(sortObj)
+      .skip(skip)
+      .limit(limitNum);
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalRegions / limitNum);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    return successResponse(res, 'Regions retrieved successfully', {
+      regions,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalRegions,
+        limit: limitNum,
+        hasNextPage,
+        hasPrevPage
+      },
+      filters: {
+        search,
+        state,
+        city,
+        sortBy,
+        sortOrder
+      }
+    });
   } catch (error) {
     return serverError(res, error);
   }
