@@ -56,6 +56,10 @@ export const getAllBrokers = async (req, res) => {
     const totalBrokers = await BrokerDetail.countDocuments(filter);
     const totalPages = Math.ceil(totalBrokers / parseInt(limit));
 
+    // Get blocked and unblocked counts (without filters for overall stats)
+    const totalBlockedBrokers = await BrokerDetail.countDocuments({ approvedByAdmin: 'blocked' });
+    const totalUnblockedBrokers = await BrokerDetail.countDocuments({ approvedByAdmin: 'unblocked' });
+
     // Convert file paths to URLs
     const brokersWithUrls = brokers.map(broker => {
       const brokerObj = broker.toObject();
@@ -89,6 +93,11 @@ export const getAllBrokers = async (req, res) => {
         totalBrokers,
         hasNextPage: parseInt(page) < totalPages,
         hasPrevPage: parseInt(page) > 1
+      },
+      stats: {
+        totalBlockedBrokers,
+        totalUnblockedBrokers,
+        totalAllBrokers: totalBlockedBrokers + totalUnblockedBrokers
       }
     });
 

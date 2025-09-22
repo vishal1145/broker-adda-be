@@ -4,7 +4,8 @@ import {
   getRegionById,
   createRegion,
   updateRegion,
-  deleteRegion
+  deleteRegion,
+  getRegionStats
 } from '../controllers/regionController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
@@ -14,6 +15,7 @@ const router = express.Router();
 
 // Public routes
 router.get('/', getAllRegions);
+router.get('/stats', getRegionStats);
 router.get('/:id', getRegionById);
 
 // Protected routes (Admin only)

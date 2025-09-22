@@ -169,3 +169,50 @@ export const deleteRegion = async (req, res) => {
     return serverError(res, error);
   }
 };
+
+// Get region statistics/counts
+export const getRegionStats = async (req, res) => {
+  try {
+    // Get total regions count
+    const totalRegions = await Region.countDocuments();
+
+    // Get unique states count
+    const uniqueStates = await Region.distinct('state');
+    const activeStates = uniqueStates.length;
+
+    // Get unique cities count
+    const uniqueCities = await Region.distinct('city');
+    const activeCities = uniqueCities.length;
+
+    // Get average brokers per region
+    const regionsWithBrokers = await Region.aggregate([
+      {
+        $lookup: {
+          from: 'brokerdetails',
+          localField: '_id',
+          foreignField: 'region',
+          as: 'brokers'
+        }
+      },
+      {
+        $project: {
+          name: 1,
+          brokerCount: { $size: '$brokers' }
+        }
+      }
+    ]);
+
+    const totalBrokers = regionsWithBrokers.reduce((sum, region) => sum + region.brokerCount, 0);
+    const avgBrokersPerRegion = totalRegions > 0 ? Math.round(totalBrokers / totalRegions) : 0;
+
+    return successResponse(res, 'Region statistics retrieved successfully', {
+      totalRegions,
+      activeStates,
+      activeCities,
+      avgBrokersPerRegion,
+      totalBrokers
+    });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
