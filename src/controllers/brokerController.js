@@ -38,7 +38,13 @@ export const getAllBrokers = async (req, res) => {
         { name: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } },
-        { firmName: { $regex: search, $options: 'i' } }
+        { whatsappNumber: { $regex: search, $options: 'i' } },
+        { firmName: { $regex: search, $options: 'i' } },
+        { licenseNumber: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } },
+        { state: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } },
+        { website: { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -74,6 +80,12 @@ export const getAllBrokers = async (req, res) => {
         }
         if (brokerObj.kycDocs.gst) {
           brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
+        }
+        if (brokerObj.kycDocs.brokerLicense) {
+          brokerObj.kycDocs.brokerLicense = getFileUrl(req, brokerObj.kycDocs.brokerLicense);
+        }
+        if (brokerObj.kycDocs.companyId) {
+          brokerObj.kycDocs.companyId = getFileUrl(req, brokerObj.kycDocs.companyId);
         }
       }
       
@@ -135,6 +147,12 @@ export const getBrokerById = async (req, res) => {
       if (brokerObj.kycDocs.gst) {
         brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
       }
+      if (brokerObj.kycDocs.brokerLicense) {
+        brokerObj.kycDocs.brokerLicense = getFileUrl(req, brokerObj.kycDocs.brokerLicense);
+      }
+      if (brokerObj.kycDocs.companyId) {
+        brokerObj.kycDocs.companyId = getFileUrl(req, brokerObj.kycDocs.companyId);
+      }
     }
     
     // Convert broker image path to URL
@@ -192,6 +210,12 @@ export const approveBroker = async (req, res) => {
       }
       if (brokerObj.kycDocs.gst) {
         brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
+      }
+      if (brokerObj.kycDocs.brokerLicense) {
+        brokerObj.kycDocs.brokerLicense = getFileUrl(req, brokerObj.kycDocs.brokerLicense);
+      }
+      if (brokerObj.kycDocs.companyId) {
+        brokerObj.kycDocs.companyId = getFileUrl(req, brokerObj.kycDocs.companyId);
       }
     }
     
@@ -254,6 +278,12 @@ export const rejectBroker = async (req, res) => {
       }
       if (brokerObj.kycDocs.gst) {
         brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
+      }
+      if (brokerObj.kycDocs.brokerLicense) {
+        brokerObj.kycDocs.brokerLicense = getFileUrl(req, brokerObj.kycDocs.brokerLicense);
+      }
+      if (brokerObj.kycDocs.companyId) {
+        brokerObj.kycDocs.companyId = getFileUrl(req, brokerObj.kycDocs.companyId);
       }
     }
     

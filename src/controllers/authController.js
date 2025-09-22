@@ -297,7 +297,9 @@ export const verifyOTP = async (req, res) => {
           address: '',
           state: '',
           city: '',
+          whatsappNumber: '',
           specializations: [],
+          website: '',
           socialMedia: {
             linkedin: '',
             twitter: '',
@@ -308,7 +310,9 @@ export const verifyOTP = async (req, res) => {
           kycDocs: {
             aadhar: '',
             pan: '',
-            gst: ''
+            gst: '',
+            brokerLicense: '',
+            companyId: ''
           },
           brokerImage: 'https://www.w3schools.com/howto/img_avatar.png',
           status: 'active',
@@ -411,7 +415,9 @@ export const verifyOTP = async (req, res) => {
             address: '',
             state: '',
             city: '',
+            whatsappNumber: '',
             specializations: [],
+            website: '',
             socialMedia: {
               linkedin: '',
               twitter: '',
@@ -422,7 +428,9 @@ export const verifyOTP = async (req, res) => {
             kycDocs: {
               aadhar: '',
               pan: '',
-              gst: ''
+              gst: '',
+              brokerLicense: '',
+              companyId: ''
             },
             status: 'active',
             approvedByAdmin: 'unblocked'
@@ -590,6 +598,12 @@ export const completeProfile = async (req, res) => {
           if (files.gst) {
             brokerDetail.kycDocs.gst = getFileUrl(req, files.gst[0].path);
           }
+          if (files.brokerLicense) {
+            brokerDetail.kycDocs.brokerLicense = getFileUrl(req, files.brokerLicense[0].path);
+          }
+          if (files.companyId) {
+            brokerDetail.kycDocs.companyId = getFileUrl(req, files.companyId[0].path);
+          }
 
           // Process broker image
           if (files.brokerImage) {
@@ -611,7 +625,9 @@ export const completeProfile = async (req, res) => {
           address: roleSpecificData.brokerDetails.address || '',
           state: roleSpecificData.brokerDetails.state || '',
           city: roleSpecificData.brokerDetails.city || '',
+          whatsappNumber: roleSpecificData.brokerDetails.whatsappNumber || '',
           specializations: roleSpecificData.brokerDetails.specializations || [],
+          website: roleSpecificData.brokerDetails.website || '',
           socialMedia: {
             linkedin: roleSpecificData.brokerDetails.socialMedia?.linkedin || '',
             twitter: roleSpecificData.brokerDetails.socialMedia?.twitter || '',
@@ -632,6 +648,12 @@ export const completeProfile = async (req, res) => {
           }
           if (files.gst) {
             newBrokerDetail.kycDocs.gst = getFileUrl(req, files.gst[0].path);
+          }
+          if (files.brokerLicense) {
+            newBrokerDetail.kycDocs.brokerLicense = getFileUrl(req, files.brokerLicense[0].path);
+          }
+          if (files.companyId) {
+            newBrokerDetail.kycDocs.companyId = getFileUrl(req, files.companyId[0].path);
           }
 
           // Process broker image

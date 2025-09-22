@@ -21,6 +21,10 @@ const brokerDetailSchema = new mongoose.Schema({
     type: String,
     match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number']
   },
+  whatsappNumber: {
+    type: String,
+    match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid WhatsApp number']
+  },
   gender: {
     type: String,
     enum: ['male', 'female', 'other'],
@@ -56,6 +60,11 @@ const brokerDetailSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Each specialization cannot be more than 100 characters']
   }],
+  website: {
+    type: String,
+    trim: true,
+    maxlength: [200, 'Website URL cannot be more than 200 characters']
+  },
   socialMedia: {
     linkedin: {
       type: String,
@@ -90,6 +99,12 @@ const brokerDetailSchema = new mongoose.Schema({
       type: String
     },
     gst: {
+      type: String
+    },
+    brokerLicense: {
+      type: String
+    },
+    companyId: {
       type: String
     }
   },

@@ -12,9 +12,11 @@ export const completeProfileSchema = Joi.object({
     address: Joi.string().optional().max(500).trim(),
     state: Joi.string().optional().max(50).trim(),
     city: Joi.string().optional().max(50).trim(),
+    whatsappNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional(),
     specializations: Joi.array().items(
       Joi.string().max(100).trim()
     ).optional(),
+    website: Joi.string().uri().optional().max(200).trim(),
     socialMedia: Joi.object({
       linkedin: Joi.string().uri().optional().max(200).trim(),
       twitter: Joi.string().uri().optional().max(200).trim(),
@@ -27,7 +29,9 @@ export const completeProfileSchema = Joi.object({
     kycDocs: Joi.object({
       aadhar: Joi.string().optional(),
       pan: Joi.string().optional(),
-      gst: Joi.string().optional()
+      gst: Joi.string().optional(),
+      brokerLicense: Joi.string().optional(),
+      companyId: Joi.string().optional()
     }).optional()
   }).optional(),
   customerDetails: Joi.object({
@@ -60,9 +64,11 @@ export const brokerDetailSchema = Joi.object({
   officeAddress: Joi.string().optional().max(500).trim(),
   state: Joi.string().optional().max(50).trim(),
   city: Joi.string().optional().max(50).trim(),
+  whatsappNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional(),
   specializations: Joi.array().items(
     Joi.string().max(100).trim()
   ).optional(),
+  website: Joi.string().uri().optional().max(200).trim(),
   socialMedia: Joi.object({
     linkedin: Joi.string().uri().optional().max(200).trim(),
     twitter: Joi.string().uri().optional().max(200).trim(),
@@ -80,7 +86,9 @@ export const brokerDetailSchema = Joi.object({
   kycDocs: Joi.object({
     aadhar: Joi.string().required(),
     pan: Joi.string().required(),
-    gst: Joi.string().required()
+    gst: Joi.string().required(),
+    brokerLicense: Joi.string().optional(),
+    companyId: Joi.string().optional()
   }).required()
 });
 

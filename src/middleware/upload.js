@@ -52,7 +52,9 @@ const upload = multer({
 export const uploadKycDocs = upload.fields([
   { name: 'aadhar', maxCount: 1 },
   { name: 'pan', maxCount: 1 },
-  { name: 'gst', maxCount: 1 }
+  { name: 'gst', maxCount: 1 },
+  { name: 'brokerLicense', maxCount: 1 },
+  { name: 'companyId', maxCount: 1 }
 ]);
 
 // Middleware for image uploads
@@ -65,6 +67,8 @@ export const uploadAllFiles = upload.fields([
   { name: 'aadhar', maxCount: 1 },
   { name: 'pan', maxCount: 1 },
   { name: 'gst', maxCount: 1 },
+  { name: 'brokerLicense', maxCount: 1 },
+  { name: 'companyId', maxCount: 1 },
   { name: 'brokerImage', maxCount: 1 },
   { name: 'customerImage', maxCount: 1 }
 ]);
