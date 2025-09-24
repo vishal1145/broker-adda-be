@@ -8,7 +8,8 @@ import {
   resendOTP,
   getProfile,
   updateProfile,
-  checkEmailExists
+  checkEmailExists,
+  adminCreateBroker,            // ✅ make sure this is exported from controller
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
@@ -19,13 +20,17 @@ import {
   adminLoginSchema,
   phoneLoginSchema,
   otpVerificationSchema,
-  resendOtpSchema
+  resendOtpSchema,
+  adminCreateBrokerSchema
 } from '../validations/auth.js';
 import { completeProfileSchema } from '../validations/profile.js';
 
 const router = express.Router();
 
-// Public routes
+/** Admin-only route (PROTECTED) */
+router.post('/admin/broker', authenticate ,validate(adminCreateBrokerSchema) ,adminCreateBroker); // ✅ fixed name
+
+/** Public routes */
 router.post('/register', detectPlatform, validate(phoneRegistrationSchema), phoneRegistration);
 router.post('/admin-login', validate(adminLoginSchema), adminLogin);
 router.post('/login', detectPlatform, validate(phoneLoginSchema), phoneLogin);

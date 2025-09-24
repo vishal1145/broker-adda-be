@@ -926,3 +926,69 @@ export const updateProfile = async (req, res) => {
     return serverError(res, error);
   }
 };
+
+// createAdmin Broker
+export const adminCreateBroker = async (req, res) => {
+  try {
+    // allow only admin
+    if (!req.user || req.user.role !== 'admin') {
+      return errorResponse(res, 'Admin access required', 403);
+    }
+
+
+      const { phone ,email,name} = req.body;
+
+    // uniqueness checks
+    const byPhone = await User.findOne({ phone });
+    if (byPhone) return errorResponse(res, `Phone ${phone} is already registered as ${byPhone.role}.`, 409);
+
+    const byEmail = await User.findOne({ email: email.toLowerCase() });
+    if (byEmail) return errorResponse(res, `Email ${email} is already registered as ${byEmail.role}.`, 409);
+
+    // create user (broker)
+    const user = await User.create({
+      name,
+      email: email.toLowerCase(),
+      phone,
+      role: 'broker',
+      status: 'active',
+      isPhoneVerified: true,      // OTP bypass
+      isEmailVerified: false,
+      platform: 'admin-panel',
+      createdBy: req.user._id,
+      source: 'admin_create',
+    });
+
+    // (optional) If your BrokerDetail model has ONLY these 3-4 fields, keep it minimal
+    await BrokerDetail.create({
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+   
+    });
+
+    return successResponse(
+      res,
+      'Broker created successfully (by admin, no OTP).',
+      {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          status: user.status,
+          isPhoneVerified: user.isPhoneVerified,
+        }
+      },
+      201
+    );
+  } catch (err) {
+    if (err.isJoi) {
+      const msg = err.details?.map(d => d.message).join(', ') || err.message;
+      return errorResponse(res, msg, 400);
+    }
+    return serverError(res, err);
+  }
+};

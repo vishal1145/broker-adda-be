@@ -27,3 +27,9 @@ export const otpVerificationSchema = Joi.object({
 export const resendOtpSchema = Joi.object({
   phone: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).required()
 });
+
+export const adminCreateBrokerSchema = Joi.object({
+  name:  Joi.string().trim().min(2).max(80).required(),
+  email: Joi.string().email().lowercase().required(),
+  phone: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).required(),
+}).unknown(true);
