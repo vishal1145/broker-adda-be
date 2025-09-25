@@ -9,8 +9,8 @@ import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../ut
 export const getAllBrokers = async (req, res) => {
   try {
     const { 
-      page , 
-      limit , 
+      page=1 , 
+      limit=10 , 
       status, 
       approvedByAdmin, 
       regionId,

@@ -116,8 +116,8 @@ export const createLead = async (req, res) => {
 export const getLeads = async (req, res) => {
   try {
     const {
-      page ,
-      limit ,
+      page=1 ,
+      limit=10 ,
       search,
       status,
       propertyType,
