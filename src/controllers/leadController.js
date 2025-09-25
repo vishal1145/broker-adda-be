@@ -1,4 +1,5 @@
 import Lead from '../models/Lead.js';
+import mongoose from 'mongoose';
 import BrokerDetail from '../models/BrokerDetail.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 
@@ -122,6 +123,7 @@ export const getLeads = async (req, res) => {
       status,
       propertyType,
       region,
+      regionId,
       requirement,
       budgetMin,
       budgetMax,
@@ -139,7 +141,15 @@ export const getLeads = async (req, res) => {
     if (status) filter.status = status;
     if (propertyType) filter.propertyType = propertyType;
     if (createdBy) filter.createdBy = createdBy;
-    if (region) filter.region = region;
+    // Resolve region filter strictly from regionId or region and cast to ObjectId
+    const resolvedRegionId = regionId || region;
+    if (resolvedRegionId) {
+      const idAsString = String(resolvedRegionId);
+      if (!mongoose.Types.ObjectId.isValid(idAsString)) {
+        return errorResponse(res, 'Invalid regionId format', 400);
+      }
+      filter.region = new mongoose.Types.ObjectId(idAsString);
+    }
     if (requirement) filter.requirement = { $regex: requirement, $options: 'i' };
     if (budgetMin || budgetMax) {
       filter.budget = {};
@@ -164,30 +174,32 @@ export const getLeads = async (req, res) => {
       if (toDate) filter.createdAt.$lte = new Date(toDate);
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNum = Number.isFinite(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;
+    const limitNum = Number.isFinite(parseInt(limit)) && parseInt(limit) > 0 ? parseInt(limit) : 10;
+    const skip = (pageNum - 1) * limitNum;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
     const [items, total] = await Promise.all([
       Lead.find(filter)
         .sort(sort)
         .skip(skip)
-        .limit(parseInt(limit))
+        .limit(limitNum)
         .populate({ path: 'createdBy', select: 'name email phone firmName' })
         .populate({ path: 'region', select: 'name state city' })
         .lean(),
       Lead.countDocuments(filter)
     ]);
 
-    const totalPages = Math.ceil(total / parseInt(limit));
+    const totalPages = Math.ceil(total / limitNum);
 
     return successResponse(res, 'Leads retrieved successfully', {
       items,
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: pageNum,
+      limit: limitNum,
       total,
       totalPages,
-      hasNextPage: parseInt(page) < totalPages,
-      hasPrevPage: parseInt(page) > 1
+      hasNextPage: pageNum < totalPages,
+      hasPrevPage: pageNum > 1
     });
   } catch (error) {
     return serverError(res, error);
