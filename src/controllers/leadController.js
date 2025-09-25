@@ -224,6 +224,38 @@ export const getLeadById = async (req, res) => {
   }
 };
 
+export const getLeadMetrics = async (req, res) => {
+  try {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const [totalLeads, newLeadsToday, convertedLeads, avgDealAgg] = await Promise.all([
+      Lead.countDocuments({}),
+      Lead.countDocuments({ createdAt: { $gte: startOfToday, $lte: endOfToday } }),
+      Lead.countDocuments({ status: 'Closed' }),
+      Lead.aggregate([
+        { $match: { status: 'Closed', budget: { $ne: null } } },
+        { $group: { _id: null, avg: { $avg: '$budget' } } },
+        { $project: { _id: 0, avg: 1 } }
+      ])
+    ]);
+
+    const averageDealSize = Array.isArray(avgDealAgg) && avgDealAgg.length > 0 ? avgDealAgg[0].avg : 0;
+
+    return successResponse(res, 'Lead metrics retrieved successfully', {
+      totalLeads,
+      newLeadsToday,
+      convertedLeads,
+      averageDealSize
+    });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
 
 export const updateLead = async (req, res) => {
   try {

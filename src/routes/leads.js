@@ -1,5 +1,5 @@
 import express from 'express';
-import { createLead, getLeads, getLeadById, updateLead, deleteLead, transferAndNotes } from '../controllers/leadController.js';
+import { createLead, getLeads, getLeadById, getLeadMetrics, updateLead, deleteLead, transferAndNotes } from '../controllers/leadController.js';
 import { validate } from '../middleware/validation.js';
 import { authenticate } from '../middleware/auth.js';
 import { createLeadSchema, leadQuerySchema, transferAndNotesSchema } from '../validations/lead.js';
@@ -11,6 +11,9 @@ router.post('/', authenticate, validate(createLeadSchema), createLead);
 
 // List leads with filters and pagination
 router.get('/', authenticate, validate(leadQuerySchema, 'query'), getLeads);
+
+// Lead metrics (totals for dashboard)
+router.get('/metrics', authenticate, getLeadMetrics);
 
 // Get a single lead by id
 router.get('/:id', authenticate, getLeadById);
