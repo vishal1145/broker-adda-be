@@ -6,7 +6,7 @@ import { getFileUrl } from '../middleware/upload.js';
 // Get all customers - works for any role (admin, broker, customer)
 export const getAllCustomers = async (req, res) => {
   try {
-    const { page=1, limit=10 , search = '' } = req.query;
+    const { page, limit , search = '' } = req.query;
     const skip = (page - 1) * limit;
 
     // Build search query for users

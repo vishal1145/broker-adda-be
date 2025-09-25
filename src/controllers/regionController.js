@@ -6,8 +6,8 @@ import { successResponse, errorResponse, serverError } from '../utils/response.j
 export const getAllRegions = async (req, res) => {
   try {
     const { 
-      page=1 , 
-      limit=10 , 
+      page , 
+      limit , 
       search = '', 
       state = '', 
       city = '',
