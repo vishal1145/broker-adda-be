@@ -267,6 +267,26 @@ export const getLeadById = async (req, res) => {
 
 export const getLeadMetrics = async (req, res) => {
   try {
+    // Optional filter by broker
+    const { brokerId, createdBy } = req.query || {};
+
+    // Resolve brokerDetailId to filter by createdBy
+    let createdByBrokerId = createdBy || brokerId || null;
+    if (!createdByBrokerId && req.user && req.user.role === 'broker') {
+      try {
+        const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
+        if (brokerDetailId) createdByBrokerId = String(brokerDetailId);
+      } catch (_) {}
+    }
+
+    const matchBase = {};
+    if (createdByBrokerId) {
+      if (!mongoose.Types.ObjectId.isValid(String(createdByBrokerId))) {
+        return errorResponse(res, 'Invalid brokerId/createdBy format', 400);
+      }
+      matchBase.createdBy = new mongoose.Types.ObjectId(String(createdByBrokerId));
+    }
+
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
@@ -274,11 +294,11 @@ export const getLeadMetrics = async (req, res) => {
     endOfToday.setHours(23, 59, 59, 999);
 
     const [totalLeads, newLeadsToday, convertedLeads, avgDealAgg] = await Promise.all([
-      Lead.countDocuments({}),
-      Lead.countDocuments({ createdAt: { $gte: startOfToday, $lte: endOfToday } }),
-      Lead.countDocuments({ status: 'Closed' }),
+      Lead.countDocuments(matchBase),
+      Lead.countDocuments({ ...matchBase, createdAt: { $gte: startOfToday, $lte: endOfToday } }),
+      Lead.countDocuments({ ...matchBase, status: 'Closed' }),
       Lead.aggregate([
-        { $match: { status: 'Closed', budget: { $ne: null } } },
+        { $match: { ...matchBase, status: 'Closed', budget: { $ne: null } } },
         { $group: { _id: null, avg: { $avg: '$budget' } } },
         { $project: { _id: 0, avg: 1 } }
       ])
