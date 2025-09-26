@@ -493,14 +493,6 @@ export const updateLead = async (req, res) => {
       return errorResponse(res, 'Lead not found', 404);
     }
 
-    // Authorization check - only the creator or admin can update
-    if (req.user && req.user.role === 'broker') {
-      const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
-      if (existingLead.createdBy.toString() !== brokerDetailId?.toString()) {
-        return errorResponse(res, 'Unauthorized: You can only update leads created by you', 403);
-      }
-    }
-
     // API-level uniqueness checks (only when values are being updated)
     if (payload.customerEmail && payload.customerEmail !== existingLead.customerEmail) {
       const exists = await Lead.exists({ 
@@ -576,14 +568,6 @@ export const deleteLead = async (req, res) => {
     const lead = await Lead.findById(id);
     if (!lead) {
       return errorResponse(res, 'Lead not found', 404);
-    }
-
-    // Authorization check - only the creator or admin can delete
-    if (req.user && req.user.role === 'broker') {
-      const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
-      if (lead.createdBy.toString() !== brokerDetailId?.toString()) {
-        return errorResponse(res, 'Unauthorized: You can only delete leads created by you', 403);
-      }
     }
 
     // Delete the lead
