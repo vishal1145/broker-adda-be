@@ -1,5 +1,6 @@
 import Lead from '../models/Lead.js';
 import mongoose from 'mongoose';
+import { getFileUrl } from '../middleware/upload.js';
 import BrokerDetail from '../models/BrokerDetail.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 
@@ -184,16 +185,39 @@ export const getLeads = async (req, res) => {
         .sort(sort)
         .skip(skip)
         .limit(limitNum)
-        .populate({ path: 'createdBy', select: 'name email phone firmName' })
+        .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
         .populate({ path: 'region', select: 'name state city' })
+        .populate({ path: 'transfers.fromBroker', select: 'name email phone firmName brokerImage' })
+        .populate({ path: 'transfers.toBroker', select: 'name email phone firmName brokerImage' })
         .lean(),
       Lead.countDocuments(filter)
     ]);
 
+    // Convert brokerImage paths to URLs
+    const itemsWithImageUrls = (items || []).map(item => {
+      const lead = { ...item };
+      if (lead.createdBy && typeof lead.createdBy === 'object') {
+        lead.createdBy = { ...lead.createdBy, brokerImage: getFileUrl(req, lead.createdBy.brokerImage) };
+      }
+      if (Array.isArray(lead.transfers)) {
+        lead.transfers = lead.transfers.map(t => {
+          const tr = { ...t };
+          if (tr.fromBroker && typeof tr.fromBroker === 'object') {
+            tr.fromBroker = { ...tr.fromBroker, brokerImage: getFileUrl(req, tr.fromBroker.brokerImage) };
+          }
+          if (tr.toBroker && typeof tr.toBroker === 'object') {
+            tr.toBroker = { ...tr.toBroker, brokerImage: getFileUrl(req, tr.toBroker.brokerImage) };
+          }
+          return tr;
+        });
+      }
+      return lead;
+    });
+
     const totalPages = Math.ceil(total / limitNum);
 
     return successResponse(res, 'Leads retrieved successfully', {
-      items,
+      items: itemsWithImageUrls,
       page: pageNum,
       limit: limitNum,
       total,
@@ -210,13 +234,30 @@ export const getLeadById = async (req, res) => {
   try {
     const { id } = req.params;
     const lead = await Lead.findById(id)
-      .populate({ path: 'createdBy', select: 'name email phone firmName' })
+      .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
       .populate({ path: 'region', select: 'name state city description' })
-      .populate({ path: 'transfers.fromBroker', select: 'name email phone firmName' })
-      .populate({ path: 'transfers.toBroker', select: 'name email phone firmName' })
+      .populate({ path: 'transfers.fromBroker', select: 'name email phone firmName brokerImage' })
+      .populate({ path: 'transfers.toBroker', select: 'name email phone firmName brokerImage' })
       .lean();
 
     if (!lead) return errorResponse(res, 'Lead not found', 404);
+
+    // Convert brokerImage paths to URLs in detail too
+    if (lead.createdBy && typeof lead.createdBy === 'object') {
+      lead.createdBy.brokerImage = getFileUrl(req, lead.createdBy.brokerImage);
+    }
+    if (Array.isArray(lead.transfers)) {
+      lead.transfers = lead.transfers.map(t => {
+        const tr = { ...t };
+        if (tr.fromBroker && typeof tr.fromBroker === 'object') {
+          tr.fromBroker.brokerImage = getFileUrl(req, tr.fromBroker.brokerImage);
+        }
+        if (tr.toBroker && typeof tr.toBroker === 'object') {
+          tr.toBroker.brokerImage = getFileUrl(req, tr.toBroker.brokerImage);
+        }
+        return tr;
+      });
+    }
 
     return successResponse(res, 'Lead retrieved successfully', { lead });
   } catch (error) {
