@@ -265,6 +265,170 @@ export const getLeadById = async (req, res) => {
   }
 };
 
+export const getTransferredLeads = async (req, res) => {
+  try {
+    const {
+      page,
+      limit,
+      search,
+      status,
+      propertyType,
+      region,
+      regionId,
+      requirement,
+      budgetMin,
+      budgetMax,
+      createdBy,
+      customerEmail,
+      customerPhone,
+      fromDate,
+      toDate,
+      toBroker,
+      fromBroker,
+      brokerId, // Additional filter for any broker involvement
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query || {};
+
+    // Build base filter with all lead fields (same as getLeads)
+    const filter = {};
+
+    if (status) filter.status = status;
+    if (propertyType) filter.propertyType = propertyType;
+    if (createdBy) filter.createdBy = createdBy;
+    
+    // Resolve region filter strictly from regionId or region and cast to ObjectId
+    const resolvedRegionId = regionId || region;
+    if (resolvedRegionId) {
+      const idAsString = String(resolvedRegionId);
+      if (!mongoose.Types.ObjectId.isValid(idAsString)) {
+        return errorResponse(res, 'Invalid regionId format', 400);
+      }
+      filter.region = new mongoose.Types.ObjectId(idAsString);
+    }
+    
+    if (requirement) filter.requirement = { $regex: requirement, $options: 'i' };
+    if (budgetMin || budgetMax) {
+      filter.budget = {};
+      if (budgetMin) filter.budget.$gte = Number(budgetMin);
+      if (budgetMax) filter.budget.$lte = Number(budgetMax);
+    }
+    if (customerEmail) filter.customerEmail = customerEmail;
+    if (customerPhone) filter.customerPhone = customerPhone;
+
+    if (search) {
+      filter.$or = [
+        { customerName: { $regex: search, $options: 'i' } },
+        { customerEmail: { $regex: search, $options: 'i' } },
+        { customerPhone: { $regex: search, $options: 'i' } },
+        { requirement: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (fromDate || toDate) {
+      filter.createdAt = {};
+      if (fromDate) filter.createdAt.$gte = new Date(fromDate);
+      if (toDate) filter.createdAt.$lte = new Date(toDate);
+    }
+
+    // Add transfer-specific filters
+    const matchTransfers = {};
+    if (toBroker) {
+      if (!mongoose.Types.ObjectId.isValid(String(toBroker))) {
+        return errorResponse(res, 'Invalid toBroker format', 400);
+      }
+      matchTransfers['transfers.toBroker'] = new mongoose.Types.ObjectId(String(toBroker));
+    }
+    if (fromBroker) {
+      if (!mongoose.Types.ObjectId.isValid(String(fromBroker))) {
+        return errorResponse(res, 'Invalid fromBroker format', 400);
+      }
+      matchTransfers['transfers.fromBroker'] = new mongoose.Types.ObjectId(String(fromBroker));
+    }
+    if (brokerId) {
+      if (!mongoose.Types.ObjectId.isValid(String(brokerId))) {
+        return errorResponse(res, 'Invalid brokerId format', 400);
+      }
+      const brokerObjectId = new mongoose.Types.ObjectId(String(brokerId));
+      matchTransfers.$or = [
+        { 'transfers.fromBroker': brokerObjectId },
+        { 'transfers.toBroker': brokerObjectId }
+      ];
+    }
+
+    // If logged-in broker, filter to only show leads where they are involved in transfers
+    if (req.user && req.user.role === 'broker') {
+      try {
+        const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
+        if (brokerDetailId) {
+          matchTransfers.$or = [
+            { 'transfers.fromBroker': brokerDetailId },
+            { 'transfers.toBroker': brokerDetailId }
+          ];
+        }
+      } catch (_) {
+        // Non-fatal: continue without broker filter if lookup fails
+      }
+    }
+
+    // Ensure leads have at least one transfer
+    const baseTransferFilter = { transfers: { $exists: true, $ne: [] } };
+    const finalFilter = { ...filter, ...baseTransferFilter, ...matchTransfers };
+
+    const pageNum = Number.isFinite(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;
+    const limitNum = Number.isFinite(parseInt(limit)) && parseInt(limit) > 0 ? parseInt(limit) : 10;
+    const skip = (pageNum - 1) * limitNum;
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+    const [items, total] = await Promise.all([
+      Lead.find(finalFilter)
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNum)
+        .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
+        .populate({ path: 'region', select: 'name state city' })
+        .populate({ path: 'transfers.fromBroker', select: 'name email phone firmName brokerImage' })
+        .populate({ path: 'transfers.toBroker', select: 'name email phone firmName brokerImage' })
+        .lean(),
+      Lead.countDocuments(finalFilter)
+    ]);
+
+    const itemsWithImageUrls = (items || []).map(item => {
+      const lead = { ...item };
+      if (lead.createdBy && typeof lead.createdBy === 'object') {
+        lead.createdBy = { ...lead.createdBy, brokerImage: getFileUrl(req, lead.createdBy.brokerImage) };
+      }
+      if (Array.isArray(lead.transfers)) {
+        lead.transfers = lead.transfers.map(t => {
+          const tr = { ...t };
+          if (tr.fromBroker && typeof tr.fromBroker === 'object') {
+            tr.fromBroker = { ...tr.fromBroker, brokerImage: getFileUrl(req, tr.fromBroker.brokerImage) };
+          }
+          if (tr.toBroker && typeof tr.toBroker === 'object') {
+            tr.toBroker = { ...tr.toBroker, brokerImage: getFileUrl(req, tr.toBroker.brokerImage) };
+          }
+          return tr;
+        });
+      }
+      return lead;
+    });
+
+    const totalPages = Math.ceil(total / limitNum);
+
+    return successResponse(res, 'Transferred leads retrieved successfully', {
+      items: itemsWithImageUrls,
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages,
+      hasNextPage: pageNum < totalPages,
+      hasPrevPage: pageNum > 1
+    });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
 export const getLeadMetrics = async (req, res) => {
   try {
     // Optional filter by broker
