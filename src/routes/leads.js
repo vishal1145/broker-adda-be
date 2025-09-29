@@ -2,7 +2,7 @@ import express from 'express';
 import { createLead, getLeads, getLeadById, getLeadMetrics, updateLead, deleteLead, transferAndNotes, getTransferredLeads } from '../controllers/leadController.js';
 import { validate } from '../middleware/validation.js';
 import { authenticate } from '../middleware/auth.js';
-import { createLeadSchema, leadQuerySchema, transferAndNotesSchema, transferredLeadQuerySchema } from '../validations/lead.js';
+import { createLeadSchema, updateLeadSchema, leadQuerySchema, transferAndNotesSchema, transferredLeadQuerySchema } from '../validations/lead.js';
 
 const router = express.Router();
 
@@ -22,7 +22,7 @@ router.get('/transferred', authenticate, validate(transferredLeadQuerySchema, 'q
 router.get('/:id', authenticate, getLeadById);
 
 // Update a lead
-router.put('/:id', authenticate, updateLead);
+router.put('/:id', authenticate, validate(updateLeadSchema), updateLead);
 
 // Delete a lead
 router.delete('/:id', authenticate, deleteLead);
