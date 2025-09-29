@@ -9,7 +9,9 @@ const leadSchema = new mongoose.Schema(
     requirement: { type: String, required: true }, 
     propertyType: { type: String, enum: ["Residential", "Commercial", "Plot", "Other"], required: true },
     budget: { type: Number },
-    region: { type: mongoose.Schema.Types.ObjectId, ref: 'Region', required: true },
+    // Regions: primary is required, secondary is optional
+    primaryRegion: { type: mongoose.Schema.Types.ObjectId, ref: 'Region', required: true },
+    secondaryRegion: { type: mongoose.Schema.Types.ObjectId, ref: 'Region' },
 
     // Lead ownership
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'BrokerDetail', required: true },

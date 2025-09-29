@@ -69,17 +69,35 @@ export const createLead = async (req, res) => {
       }
     }
 
-    // Validate and map regionId -> region ObjectId
-    if (!payload.region && payload.regionId) {
-      payload.region = payload.regionId;
+    // Validate and map primary/secondary region IDs
+    if (!payload.primaryRegion && payload.primaryRegionId) {
+      payload.primaryRegion = payload.primaryRegionId;
     }
-    if (!payload.region) {
-      return errorResponse(res, 'regionId is required', 400);
+    if (!payload.secondaryRegion && payload.secondaryRegionId !== undefined) {
+      const val = payload.secondaryRegionId;
+      if (val === '' || val === null) {
+        payload.secondaryRegion = undefined;
+      } else {
+        payload.secondaryRegion = val;
+      }
+    }
+    // Back-compat: map regionId -> primaryRegion
+    if (!payload.primaryRegion && payload.regionId) {
+      payload.primaryRegion = payload.regionId;
+    }
+    if (!payload.primaryRegion) {
+      return errorResponse(res, 'primaryRegionId is required', 400);
     }
     const Region = (await import('../models/Region.js')).default;
-    const regionExists = await Region.exists({ _id: payload.region });
-    if (!regionExists) {
-      return errorResponse(res, 'Invalid regionId: region not found', 400);
+    const primaryExists = await Region.exists({ _id: payload.primaryRegion });
+    if (!primaryExists) {
+      return errorResponse(res, 'Invalid primaryRegionId: region not found', 400);
+    }
+    if (payload.secondaryRegion) {
+      const secondaryExists = await Region.exists({ _id: payload.secondaryRegion });
+      if (!secondaryExists) {
+        return errorResponse(res, 'Invalid secondaryRegionId: region not found', 400);
+      }
     }
 
     // Defaults from logged-in broker
@@ -104,7 +122,10 @@ export const createLead = async (req, res) => {
 
     const lead = new Lead(payload);
     await lead.save();
-    return successResponse(res, 'Lead created successfully', { lead }, 201);
+    // Back-compat alias for clients expecting `region`
+    const leadCreated = lead.toObject ? lead.toObject() : lead;
+    leadCreated.region = leadCreated.primaryRegion;
+    return successResponse(res, 'Lead created successfully', { lead: leadCreated }, 201);
   } catch (error) {
     // Duplicate key error from Mongo for unique indexes
     if (error?.code === 11000 && error?.keyPattern) {
@@ -142,14 +163,18 @@ export const getLeads = async (req, res) => {
     if (status) filter.status = status;
     if (propertyType) filter.propertyType = propertyType;
     if (createdBy) filter.createdBy = createdBy;
-    // Resolve region filter strictly from regionId or region and cast to ObjectId
+    // Resolve region filter: match either primaryRegion or secondaryRegion
     const resolvedRegionId = regionId || region;
     if (resolvedRegionId) {
       const idAsString = String(resolvedRegionId);
       if (!mongoose.Types.ObjectId.isValid(idAsString)) {
         return errorResponse(res, 'Invalid regionId format', 400);
       }
-      filter.region = new mongoose.Types.ObjectId(idAsString);
+      const objectId = new mongoose.Types.ObjectId(idAsString);
+      filter.$or = [
+        { primaryRegion: objectId },
+        { secondaryRegion: objectId }
+      ];
     }
     if (requirement) filter.requirement = { $regex: requirement, $options: 'i' };
     if (budgetMin || budgetMax) {
@@ -186,9 +211,18 @@ export const getLeads = async (req, res) => {
         .skip(skip)
         .limit(limitNum)
         .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
-        .populate({ path: 'region', select: 'name state city' })
-        .populate({ path: 'transfers.fromBroker', select: 'name email phone firmName brokerImage' })
-        .populate({ path: 'transfers.toBroker', select: 'name email phone firmName brokerImage' })
+        .populate({ path: 'primaryRegion', select: 'name state city' })
+        .populate({ path: 'secondaryRegion', select: 'name state city' })
+        .populate({
+          path: 'transfers.fromBroker',
+          select: 'name email phone firmName brokerImage region',
+          populate: { path: 'region', select: 'name state city description' }
+        })
+        .populate({
+          path: 'transfers.toBroker',
+          select: 'name email phone firmName brokerImage region',
+          populate: { path: 'region', select: 'name state city description' }
+        })
         .lean(),
       Lead.countDocuments(filter)
     ]);
@@ -203,14 +237,24 @@ export const getLeads = async (req, res) => {
         lead.transfers = lead.transfers.map(t => {
           const tr = { ...t };
           if (tr.fromBroker && typeof tr.fromBroker === 'object') {
-            tr.fromBroker = { ...tr.fromBroker, brokerImage: getFileUrl(req, tr.fromBroker.brokerImage) };
+            const fb = { ...tr.fromBroker, brokerImage: getFileUrl(req, tr.fromBroker.brokerImage) };
+            const regions = Array.isArray(fb.region) ? fb.region : [];
+            fb.primaryRegion = regions.length > 0 ? regions[0] : null;
+            fb.secondaryRegion = regions.length > 1 ? regions[1] : null;
+            tr.fromBroker = fb;
           }
           if (tr.toBroker && typeof tr.toBroker === 'object') {
-            tr.toBroker = { ...tr.toBroker, brokerImage: getFileUrl(req, tr.toBroker.brokerImage) };
+            const tb = { ...tr.toBroker, brokerImage: getFileUrl(req, tr.toBroker.brokerImage) };
+            const regions = Array.isArray(tb.region) ? tb.region : [];
+            tb.primaryRegion = regions.length > 0 ? regions[0] : null;
+            tb.secondaryRegion = regions.length > 1 ? regions[1] : null;
+            tr.toBroker = tb;
           }
           return tr;
         });
       }
+      // Back-compat alias
+      lead.region = lead.primaryRegion;
       return lead;
     });
 
@@ -235,9 +279,18 @@ export const getLeadById = async (req, res) => {
     const { id } = req.params;
     const lead = await Lead.findById(id)
       .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
-      .populate({ path: 'region', select: 'name state city description' })
-      .populate({ path: 'transfers.fromBroker', select: 'name email phone firmName brokerImage' })
-      .populate({ path: 'transfers.toBroker', select: 'name email phone firmName brokerImage' })
+      .populate({ path: 'primaryRegion', select: 'name state city description' })
+      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({
+        path: 'transfers.fromBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.toBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
       .lean();
 
     if (!lead) return errorResponse(res, 'Lead not found', 404);
@@ -251,14 +304,24 @@ export const getLeadById = async (req, res) => {
         const tr = { ...t };
         if (tr.fromBroker && typeof tr.fromBroker === 'object') {
           tr.fromBroker.brokerImage = getFileUrl(req, tr.fromBroker.brokerImage);
+          const regions = Array.isArray(tr.fromBroker.region) ? tr.fromBroker.region : [];
+          tr.fromBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
+          tr.fromBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
         }
         if (tr.toBroker && typeof tr.toBroker === 'object') {
           tr.toBroker.brokerImage = getFileUrl(req, tr.toBroker.brokerImage);
+          const regions = Array.isArray(tr.toBroker.region) ? tr.toBroker.region : [];
+          tr.toBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
+          tr.toBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
         }
         return tr;
       });
     }
 
+    // Back-compat alias
+    if (lead) {
+      lead.region = lead.primaryRegion;
+    }
     return successResponse(res, 'Lead retrieved successfully', { lead });
   } catch (error) {
     return serverError(res, error);
@@ -297,14 +360,18 @@ export const getTransferredLeads = async (req, res) => {
     if (propertyType) filter.propertyType = propertyType;
     if (createdBy) filter.createdBy = createdBy;
     
-    // Resolve region filter strictly from regionId or region and cast to ObjectId
+    // Resolve region filter: match either primaryRegion or secondaryRegion
     const resolvedRegionId = regionId || region;
     if (resolvedRegionId) {
       const idAsString = String(resolvedRegionId);
       if (!mongoose.Types.ObjectId.isValid(idAsString)) {
         return errorResponse(res, 'Invalid regionId format', 400);
       }
-      filter.region = new mongoose.Types.ObjectId(idAsString);
+      const objectId = new mongoose.Types.ObjectId(idAsString);
+      filter.$or = [
+        { primaryRegion: objectId },
+        { secondaryRegion: objectId }
+      ];
     }
     
     if (requirement) filter.requirement = { $regex: requirement, $options: 'i' };
@@ -386,9 +453,18 @@ export const getTransferredLeads = async (req, res) => {
         .skip(skip)
         .limit(limitNum)
         .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
-        .populate({ path: 'region', select: 'name state city' })
-        .populate({ path: 'transfers.fromBroker', select: 'name email phone firmName brokerImage' })
-        .populate({ path: 'transfers.toBroker', select: 'name email phone firmName brokerImage' })
+        .populate({ path: 'primaryRegion', select: 'name state city' })
+        .populate({ path: 'secondaryRegion', select: 'name state city' })
+        .populate({
+          path: 'transfers.fromBroker',
+          select: 'name email phone firmName brokerImage region',
+          populate: { path: 'region', select: 'name state city description' }
+        })
+        .populate({
+          path: 'transfers.toBroker',
+          select: 'name email phone firmName brokerImage region',
+          populate: { path: 'region', select: 'name state city description' }
+        })
         .lean(),
       Lead.countDocuments(finalFilter)
     ]);
@@ -402,10 +478,18 @@ export const getTransferredLeads = async (req, res) => {
         lead.transfers = lead.transfers.map(t => {
           const tr = { ...t };
           if (tr.fromBroker && typeof tr.fromBroker === 'object') {
-            tr.fromBroker = { ...tr.fromBroker, brokerImage: getFileUrl(req, tr.fromBroker.brokerImage) };
+            const fb = { ...tr.fromBroker, brokerImage: getFileUrl(req, tr.fromBroker.brokerImage) };
+            const regions = Array.isArray(fb.region) ? fb.region : [];
+            fb.primaryRegion = regions.length > 0 ? regions[0] : null;
+            fb.secondaryRegion = regions.length > 1 ? regions[1] : null;
+            tr.fromBroker = fb;
           }
           if (tr.toBroker && typeof tr.toBroker === 'object') {
-            tr.toBroker = { ...tr.toBroker, brokerImage: getFileUrl(req, tr.toBroker.brokerImage) };
+            const tb = { ...tr.toBroker, brokerImage: getFileUrl(req, tr.toBroker.brokerImage) };
+            const regions = Array.isArray(tb.region) ? tb.region : [];
+            tb.primaryRegion = regions.length > 0 ? regions[0] : null;
+            tb.secondaryRegion = regions.length > 1 ? regions[1] : null;
+            tr.toBroker = tb;
           }
           return tr;
         });
@@ -514,17 +598,36 @@ export const updateLead = async (req, res) => {
       }
     }
 
-    // Validate and map regionId -> region ObjectId
+    // Validate and map primary/secondary on update
+    if (payload.primaryRegionId) {
+      payload.primaryRegion = payload.primaryRegionId;
+      delete payload.primaryRegionId;
+    }
+    if (payload.secondaryRegionId !== undefined) {
+      const val = payload.secondaryRegionId;
+      if (val === '' || val === null) {
+        payload.secondaryRegion = undefined;
+      } else {
+        payload.secondaryRegion = val;
+      }
+      delete payload.secondaryRegionId;
+    }
+    // Back-compat
     if (payload.regionId) {
-      payload.region = payload.regionId;
+      payload.primaryRegion = payload.regionId;
       delete payload.regionId;
     }
-    
-    if (payload.region) {
-      const Region = (await import('../models/Region.js')).default;
-      const regionExists = await Region.exists({ _id: payload.region });
-      if (!regionExists) {
-        return errorResponse(res, 'Invalid regionId: region not found', 400);
+    const RegionUpdate = (await import('../models/Region.js')).default;
+    if (payload.primaryRegion) {
+      const existsPrimary = await RegionUpdate.exists({ _id: payload.primaryRegion });
+      if (!existsPrimary) {
+        return errorResponse(res, 'Invalid primaryRegionId: region not found', 400);
+      }
+    }
+    if (payload.secondaryRegion) {
+      const existsSecondary = await RegionUpdate.exists({ _id: payload.secondaryRegion });
+      if (!existsSecondary) {
+        return errorResponse(res, 'Invalid secondaryRegionId: region not found', 400);
       }
     }
 
@@ -545,11 +648,42 @@ export const updateLead = async (req, res) => {
       { new: true, runValidators: true }
     )
       .populate({ path: 'createdBy', select: 'name email phone firmName' })
-      .populate({ path: 'region', select: 'name state city description' })
-      .populate({ path: 'transfers.fromBroker', select: 'name email phone firmName' })
-      .populate({ path: 'transfers.toBroker', select: 'name email phone firmName' });
+      .populate({ path: 'primaryRegion', select: 'name state city description' })
+      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({
+        path: 'transfers.fromBroker',
+        select: 'name email phone firmName region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.toBroker',
+        select: 'name email phone firmName region',
+        populate: { path: 'region', select: 'name state city description' }
+      });
 
-    return successResponse(res, 'Lead updated successfully', { lead: updatedLead });
+    // Back-compat alias and transfer brokers' derived regions
+    const leadUpdated = updatedLead && updatedLead.toObject ? updatedLead.toObject() : updatedLead;
+    if (leadUpdated) {
+      leadUpdated.region = leadUpdated.primaryRegion;
+      if (Array.isArray(leadUpdated.transfers)) {
+        leadUpdated.transfers = leadUpdated.transfers.map(t => {
+          const tr = { ...t };
+          if (tr.fromBroker && typeof tr.fromBroker === 'object') {
+            const regions = Array.isArray(tr.fromBroker.region) ? tr.fromBroker.region : [];
+            tr.fromBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
+            tr.fromBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+          }
+          if (tr.toBroker && typeof tr.toBroker === 'object') {
+            const regions = Array.isArray(tr.toBroker.region) ? tr.toBroker.region : [];
+            tr.toBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
+            tr.toBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+          }
+          return tr;
+        });
+      }
+    }
+
+    return successResponse(res, 'Lead updated successfully', { lead: leadUpdated });
   } catch (error) {
     // Duplicate key error from Mongo for unique indexes
     if (error?.code === 11000 && error?.keyPattern) {

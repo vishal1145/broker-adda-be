@@ -7,7 +7,52 @@ export const createLeadSchema = Joi.object({
   requirement: Joi.string().optional(),
   propertyType: Joi.string().valid('Residential', 'Commercial', 'Plot', 'Other').optional(),
   budget: Joi.number().optional(),
-  regionId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required(),
+  // Require primary, optional secondary (empty allowed)
+  primaryRegionId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .required()
+    .messages({
+      'any.required': 'primaryRegionId is required',
+      'string.pattern.base': 'primaryRegionId must be a valid 24-char hex ObjectId'
+    }),
+  secondaryRegionId: Joi.alternatives().try(
+    Joi.string().pattern(/^[0-9a-fA-F]{24}$/),
+    Joi.string().valid(''),
+    Joi.allow(null)
+  ).optional()
+  .messages({ 'string.pattern.base': 'secondaryRegionId must be a valid 24-char hex ObjectId' }),
+  // Back-compat: still accept regionId but will be mapped to primaryRegion
+  regionId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+  createdBy: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+  status: Joi.string().valid('New', 'Assigned', 'In Progress', 'Closed', 'Rejected').optional(),
+  transfers: Joi.array().items(Joi.object({
+    fromBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+    toBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+  })).optional(),
+  notes: Joi.string().optional(),
+}).unknown(true);
+
+
+export const updateLeadSchema = Joi.object({
+  customerName: Joi.string().optional(),
+  customerPhone: Joi.string().optional(),
+  customerEmail: Joi.string().email().optional(),
+  requirement: Joi.string().optional(),
+  propertyType: Joi.string().valid('Residential', 'Commercial', 'Plot', 'Other').optional(),
+  budget: Joi.number().optional(),
+  // For updates, primaryRegionId is optional but if present must be valid
+  primaryRegionId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .messages({ 'string.pattern.base': 'primaryRegionId must be a valid 24-char hex ObjectId' })
+    .optional(),
+  secondaryRegionId: Joi.alternatives().try(
+    Joi.string().pattern(/^[0-9a-fA-F]{24}$/),
+    Joi.string().valid(''),
+    Joi.allow(null)
+  ).optional()
+  .messages({ 'string.pattern.base': 'secondaryRegionId must be a valid 24-char hex ObjectId' }),
+  // Back-compat
+  regionId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
   createdBy: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
   status: Joi.string().valid('New', 'Assigned', 'In Progress', 'Closed', 'Rejected').optional(),
   transfers: Joi.array().items(Joi.object({
