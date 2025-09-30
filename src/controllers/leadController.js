@@ -767,4 +767,53 @@ export const transferAndNotes = async (req, res) => {
   }
 };
 
+// Delete a specific transfer (from -> to) for a lead
+export const deleteLeadTransfer = async (req, res) => {
+  try {
+    const { id, toBrokerId } = req.params;
+    const { fromBrokerId } = req.query || {};
+
+    if (!mongoose.Types.ObjectId.isValid(String(id))) {
+      return errorResponse(res, 'Invalid lead id', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(toBrokerId))) {
+      return errorResponse(res, 'Invalid toBrokerId', 400);
+    }
+
+    // Resolve fromBroker: explicit param takes precedence, else logged-in broker
+    let fromId = fromBrokerId || null;
+    if (!fromId && req.user && req.user.role === 'broker') {
+      try {
+        fromId = await findBrokerDetailIdByUserId(req.user._id);
+      } catch (_) { /* ignore */ }
+    }
+    if (!fromId) {
+      return errorResponse(res, 'fromBrokerId is required (or login as broker)', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(fromId))) {
+      return errorResponse(res, 'Invalid fromBrokerId', 400);
+    }
+
+    const lead = await Lead.findById(id);
+    if (!lead) return errorResponse(res, 'Lead not found', 404);
+
+    const before = Array.isArray(lead.transfers) ? lead.transfers.length : 0;
+    lead.transfers = (lead.transfers || []).filter(t => {
+      const toMatch = String(t?.toBroker) === String(toBrokerId);
+      const fromMatch = String(t?.fromBroker) === String(fromId);
+      return !(toMatch && fromMatch);
+    });
+    const after = lead.transfers.length;
+
+    if (after === before) {
+      return errorResponse(res, 'Transfer entry not found for given from/to brokers', 404);
+    }
+
+    await lead.save();
+    return successResponse(res, 'Transfer deleted successfully', { lead });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
 
