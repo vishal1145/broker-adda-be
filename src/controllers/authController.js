@@ -6,6 +6,7 @@ import { generateToken, generateOTP } from '../utils/jwt.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 import { getFileUrl } from '../middleware/upload.js';
 import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../utils/brokerCount.js';
+import { geocodeAddress } from '../utils/geocode.js';
 
 // Temporary OTP storage (in production, use Redis)
 const tempOTPStorage = new Map();
@@ -586,6 +587,28 @@ export const completeProfile = async (req, res) => {
         brokerDetail.email = email;
         brokerDetail.phone = phone;
 
+        // Helper to build address string for geocoding (only use address field)
+        const buildFullAddress = (obj) => {
+          return obj?.address || '';
+        };
+
+        // Always geocode if we have address information (only check address field)
+        const hasAddressInfo = !!(roleSpecificData.brokerDetails.address);
+        
+        if (hasAddressInfo) {
+          const fullAddress = buildFullAddress({
+            address: brokerDetail.address
+          });
+
+          const coords = await geocodeAddress(fullAddress);
+          if (coords) {
+            brokerDetail.location = {
+              type: 'Point',
+              coordinates: [coords.lat, coords.lng] // [lat, lng] - index 0=lat, index 1=lng
+            };
+          }
+        }
+
         // Process uploaded files if any
         if (files) {
           // Process kycDocs (PDF files) - update existing kycDocs field
@@ -636,6 +659,19 @@ export const completeProfile = async (req, res) => {
           },
           ...roleSpecificData.brokerDetails
         });
+
+        // Geocode on create if we have address
+        const fullAddress = roleSpecificData.brokerDetails.address || '';
+        
+        if (fullAddress) {
+          const coords = await geocodeAddress(fullAddress);
+          if (coords) {
+        newBrokerDetail.location = {
+          type: 'Point',
+          coordinates: [coords.lat, coords.lng] // [lat, lng] - index 0=lat, index 1=lng
+        };
+          }
+        }
 
         // Process uploaded files if any
         if (files) {
@@ -759,6 +795,12 @@ export const completeProfile = async (req, res) => {
           responseData.files.brokerImage = getFileUrl(req, brokerDetail.brokerImage);
         } else {
           responseData.files.brokerImage = 'https://www.w3schools.com/howto/img_avatar.png';
+        }
+
+        // Include geocoded coordinates in response
+        if (brokerDetail.location?.coordinates?.length === 2) {
+          const [lat, lng] = brokerDetail.location.coordinates; // [lat, lng] format
+          responseData.location = { lat, lng };
         }
       }
     } else if (user.role === 'customer') {

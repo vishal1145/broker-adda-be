@@ -45,6 +45,22 @@ const brokerDetailSchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Office address cannot be more than 500 characters']
   },
+  // GeoJSON location for geospatial queries (always [lng, lat])
+  location: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number], // [lng, lat]
+      default: undefined,
+      validate: {
+        validator: (v) => !v || v.length === 2,
+        message: 'Coordinates must be [longitude, latitude]'
+      }
+    }
+  },
   state: {
     type: String,
     trim: true,
@@ -129,6 +145,24 @@ const brokerDetailSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
+});
+
+// Geo index to enable "near me" queries
+brokerDetailSchema.index({ location: '2dsphere' });
+
+// Ensure we don't save invalid/partial GeoJSON
+brokerDetailSchema.pre('save', function(next) {
+  if (this.location) {
+    const coords = this.location?.coordinates;
+    const isValid = Array.isArray(coords) && coords.length === 2 &&
+      coords.every(n => typeof n === 'number' && Number.isFinite(n));
+    if (!isValid) {
+      this.location = undefined;
+    } else if (!this.location.type) {
+      this.location.type = 'Point';
+    }
+  }
+  next();
 });
 
 export default mongoose.model('BrokerDetail', brokerDetailSchema);

@@ -31,6 +31,15 @@ const regionSchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Center location cannot be more than 500 characters']
   },
+  // Store computed coordinates as [lat, lng]
+  centerCoordinates: {
+    type: [Number],
+    validate: {
+      validator: function(v) { return !v || v.length === 2; },
+      message: 'centerCoordinates must be [latitude, longitude]'
+    },
+    default: undefined
+  },
   radius: {
     type: Number,
     required: [true, 'Radius is required']

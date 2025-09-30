@@ -5,7 +5,8 @@ import {
   createRegion,
   updateRegion,
   deleteRegion,
-  getRegionStats
+  getRegionStats,
+  getNearestRegions
 } from '../controllers/regionController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
@@ -16,6 +17,7 @@ const router = express.Router();
 // Public routes
 router.get('/', getAllRegions);
 router.get('/stats', getRegionStats);
+router.get('/nearest', getNearestRegions);
 router.get('/:id', getRegionById);
 
 // Protected routes (Admin only)
