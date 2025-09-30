@@ -515,23 +515,17 @@ export const getTransferredLeads = async (req, res) => {
 
 export const getLeadMetrics = async (req, res) => {
   try {
-    // Optional filter by broker
+    // Optional filters/actors
     const { brokerId, createdBy } = req.query || {};
 
-    // Resolve brokerDetailId to filter by createdBy
-    let createdByBrokerId = createdBy || brokerId || null;
-    if (!createdByBrokerId && req.user && req.user.role === 'broker') {
-      try {
-        const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
-        if (brokerDetailId) createdByBrokerId = String(brokerDetailId);
-      } catch (_) {}
+    // createdBy filter should ONLY apply if explicitly provided
+    let createdByBrokerId = createdBy || null;
+    if (createdByBrokerId && !mongoose.Types.ObjectId.isValid(String(createdByBrokerId))) {
+      return errorResponse(res, 'Invalid createdBy format', 400);
     }
 
     const matchBase = {};
     if (createdByBrokerId) {
-      if (!mongoose.Types.ObjectId.isValid(String(createdByBrokerId))) {
-        return errorResponse(res, 'Invalid brokerId/createdBy format', 400);
-      }
       matchBase.createdBy = new mongoose.Types.ObjectId(String(createdByBrokerId));
     }
 
@@ -541,7 +535,29 @@ export const getLeadMetrics = async (req, res) => {
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
 
-    const [totalLeads, newLeadsToday, convertedLeads, avgDealAgg] = await Promise.all([
+    // Resolve WHICH broker to use for transfer metrics (actor)
+    let actorBrokerId = brokerId || null;
+    if (!actorBrokerId && req.user && req.user.role === 'broker') {
+      try {
+        const bd = await findBrokerDetailIdByUserId(req.user._id);
+        if (bd) actorBrokerId = String(bd);
+      } catch (_) {}
+    }
+
+    // If brokerId provided might be a User id, try mapping to BrokerDetail
+    if (actorBrokerId && !mongoose.Types.ObjectId.isValid(String(actorBrokerId))) {
+      return errorResponse(res, 'Invalid brokerId format', 400);
+    }
+    // Validate/normalize actorBrokerId: if it doesn't exist as BrokerDetail _id, try by userId
+    if (actorBrokerId) {
+      const existsAsBD = await BrokerDetail.exists({ _id: actorBrokerId });
+      if (!existsAsBD) {
+        const byUser = await BrokerDetail.findOne({ userId: actorBrokerId }).select('_id').lean();
+        if (byUser) actorBrokerId = String(byUser._id);
+      }
+    }
+
+    const [totalLeads, newLeadsToday, convertedLeads, avgDealAgg, transfersToMeAgg, transfersByMeAgg] = await Promise.all([
       Lead.countDocuments(matchBase),
       Lead.countDocuments({ ...matchBase, createdAt: { $gte: startOfToday, $lte: endOfToday } }),
       Lead.countDocuments({ ...matchBase, status: 'Closed' }),
@@ -549,16 +565,34 @@ export const getLeadMetrics = async (req, res) => {
         { $match: { ...matchBase, status: 'Closed', budget: { $ne: null } } },
         { $group: { _id: null, avg: { $avg: '$budget' } } },
         { $project: { _id: 0, avg: 1 } }
-      ])
+      ]),
+      actorBrokerId
+        ? Lead.aggregate([
+            { $unwind: '$transfers' },
+            { $match: { 'transfers.toBroker': new mongoose.Types.ObjectId(String(actorBrokerId)) } },
+            { $count: 'count' }
+          ])
+        : Promise.resolve([]),
+      actorBrokerId
+        ? Lead.aggregate([
+            { $unwind: '$transfers' },
+            { $match: { 'transfers.fromBroker': new mongoose.Types.ObjectId(String(actorBrokerId)) } },
+            { $count: 'count' }
+          ])
+        : Promise.resolve([])
     ]);
 
     const averageDealSize = Array.isArray(avgDealAgg) && avgDealAgg.length > 0 ? avgDealAgg[0].avg : 0;
+    const transfersToMe = Array.isArray(transfersToMeAgg) && transfersToMeAgg.length > 0 ? transfersToMeAgg[0].count : 0;
+    const transfersByMe = Array.isArray(transfersByMeAgg) && transfersByMeAgg.length > 0 ? transfersByMeAgg[0].count : 0;
 
     return successResponse(res, 'Lead metrics retrieved successfully', {
       totalLeads,
       newLeadsToday,
       convertedLeads,
-      averageDealSize
+      averageDealSize,
+      transfersToMe,
+      transfersByMe
     });
   } catch (error) {
     return serverError(res, error);
