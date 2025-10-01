@@ -5,7 +5,7 @@ import BrokerDetail from '../models/BrokerDetail.js';
 export const updateRegionBrokerCount = async (regionId) => {
   try {
     const brokerCount = await BrokerDetail.countDocuments({
-      region: regionId,
+      region: { $in: [regionId] },
       status: 'active'
     });
     
@@ -22,7 +22,7 @@ export const updateMultipleRegionBrokerCounts = async (regionIds) => {
   try {
     const updatePromises = regionIds.map(async (regionId) => {
       const brokerCount = await BrokerDetail.countDocuments({
-        region: regionId,
+        region: { $in: [regionId] },
         status: 'active'
       });
       

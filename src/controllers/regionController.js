@@ -209,9 +209,19 @@ export const getRegionStats = async (req, res) => {
         }
       },
       {
+        $addFields: {
+          activeBrokers: {
+            $filter: {
+              input: '$brokers',
+              cond: { $eq: ['$$this.status', 'active'] }
+            }
+          }
+        }
+      },
+      {
         $project: {
           name: 1,
-          brokerCount: { $size: '$brokers' }
+          brokerCount: { $size: '$activeBrokers' }
         }
       }
     ]);
