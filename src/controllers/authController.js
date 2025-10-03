@@ -978,7 +978,7 @@ export const adminCreateBroker = async (req, res) => {
     }
 
 
-      const { phone ,email,name} = req.body;
+      const { phone ,email,name, image, profileImage, } = req.body;
 
     // uniqueness checks
     const byPhone = await User.findOne({ phone });
@@ -986,7 +986,14 @@ export const adminCreateBroker = async (req, res) => {
 
     const byEmail = await User.findOne({ email: email.toLowerCase() });
     if (byEmail) return errorResponse(res, `Email ${email} is already registered as ${byEmail.role}.`, 409);
+    
+     const DEFAULT_BROKER_AVATAR =
+      process.env.DEFAULT_BROKER_AVATAR || 'https://www.w3schools.com/howto/img_avatar.png';
 
+    const finalProfileImage =
+      (typeof image === 'string' && image.trim()) ||
+      (typeof profileImage === 'string' && profileImage.trim()) ||
+      DEFAULT_BROKER_AVATAR;
     // create user (broker)
     const user = await User.create({
       name,
@@ -999,6 +1006,7 @@ export const adminCreateBroker = async (req, res) => {
       platform: 'admin-panel',
       createdBy: req.user._id,
       source: 'admin_create',
+       profileImage: finalProfileImage, 
     });
 
     // (optional) If your BrokerDetail model has ONLY these 3-4 fields, keep it minimal
@@ -1007,6 +1015,7 @@ export const adminCreateBroker = async (req, res) => {
       name: user.name,
       email: user.email,
       phone: user.phone,
+    profileImage: finalProfileImage,
    
     });
 
@@ -1022,6 +1031,7 @@ export const adminCreateBroker = async (req, res) => {
           role: user.role,
           status: user.status,
           isPhoneVerified: user.isPhoneVerified,
+            profileImage: finalProfileImage,
         }
       },
       201
