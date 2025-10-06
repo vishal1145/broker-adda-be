@@ -1,4 +1,5 @@
 import BrokerDetail from '../models/BrokerDetail.js';
+import Lead from '../models/Lead.js';
 import User from '../models/User.js';
 import Region from '../models/Region.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
@@ -66,7 +67,31 @@ export const getAllBrokers = async (req, res) => {
     const totalBlockedBrokers = await BrokerDetail.countDocuments({ approvedByAdmin: 'blocked' });
     const totalUnblockedBrokers = await BrokerDetail.countDocuments({ approvedByAdmin: 'unblocked' });
 
-    // Convert file paths to URLs
+    // Prepare lead stats for each broker
+    const brokerIds = brokers.map(b => b._id);
+    const [leadCountsAgg, leadsBasic] = await Promise.all([
+      Lead.aggregate([
+        { $match: { createdBy: { $in: brokerIds } } },
+        { $group: { _id: '$createdBy', count: { $sum: 1 } } }
+      ]),
+      Lead.find({ createdBy: { $in: brokerIds } })
+        .select('customerName customerEmail customerPhone createdBy')
+        .lean()
+    ]);
+    const brokerIdToLeadCount = new Map(leadCountsAgg.map(x => [String(x._id), x.count]));
+    const brokerIdToLeads = new Map();
+    for (const l of leadsBasic) {
+      const key = String(l.createdBy);
+      if (!brokerIdToLeads.has(key)) brokerIdToLeads.set(key, []);
+      brokerIdToLeads.get(key).push({
+        _id: l._id,
+        customerName: l.customerName,
+        customerEmail: l.customerEmail,
+        customerPhone: l.customerPhone
+      });
+    }
+
+    // Convert file paths to URLs and attach lead stats
     const brokersWithUrls = brokers.map(broker => {
       const brokerObj = broker.toObject();
       
@@ -93,6 +118,13 @@ export const getAllBrokers = async (req, res) => {
       if (brokerObj.brokerImage) {
         brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
       }
+
+      // Attach lead stats
+      const key = String(brokerObj._id);
+      brokerObj.leadsCreated = {
+        count: brokerIdToLeadCount.get(key) || 0,
+        items: brokerIdToLeads.get(key) || []
+      };
       
       return brokerObj;
     });
@@ -159,6 +191,18 @@ export const getBrokerById = async (req, res) => {
     if (brokerObj.brokerImage) {
       brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
     }
+
+    // Lead stats for this broker
+    const [leadCount, leads] = await Promise.all([
+      Lead.countDocuments({ createdBy: broker._id }),
+      Lead.find({ createdBy: broker._id })
+        .select('customerName customerEmail customerPhone')
+        .lean()
+    ]);
+    brokerObj.leadsCreated = {
+      count: leadCount,
+      items: leads
+    };
 
     return successResponse(res, 'Broker details retrieved successfully', { broker: brokerObj });
 
