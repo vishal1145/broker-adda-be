@@ -75,7 +75,7 @@ export const getAllBrokers = async (req, res) => {
         { $group: { _id: '$createdBy', count: { $sum: 1 } } }
       ]),
       Lead.find({ createdBy: { $in: brokerIds } })
-        .select('customerName customerEmail customerPhone createdBy')
+        .select('customerName customerEmail customerPhone requirement propertyType budget status primaryRegion secondaryRegion createdAt updatedAt createdBy')
         .lean()
     ]);
     const brokerIdToLeadCount = new Map(leadCountsAgg.map(x => [String(x._id), x.count]));
@@ -87,7 +87,15 @@ export const getAllBrokers = async (req, res) => {
         _id: l._id,
         customerName: l.customerName,
         customerEmail: l.customerEmail,
-        customerPhone: l.customerPhone
+        customerPhone: l.customerPhone,
+        requirement: l.requirement,
+        propertyType: l.propertyType,
+        budget: l.budget,
+        status: l.status,
+        primaryRegion: l.primaryRegion,
+        secondaryRegion: l.secondaryRegion,
+        createdAt: l.createdAt,
+        updatedAt: l.updatedAt
       });
     }
 
@@ -196,7 +204,7 @@ export const getBrokerById = async (req, res) => {
     const [leadCount, leads] = await Promise.all([
       Lead.countDocuments({ createdBy: broker._id }),
       Lead.find({ createdBy: broker._id })
-        .select('customerName customerEmail customerPhone')
+        .select('customerName customerEmail customerPhone requirement propertyType budget status primaryRegion secondaryRegion createdAt updatedAt')
         .lean()
     ]);
     brokerObj.leadsCreated = {
