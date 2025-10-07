@@ -840,32 +840,74 @@ export const completeProfile = async (req, res) => {
 export const resendOTP = async (req, res) => {
   try {
     const { phone } = req.body;
+    const platform = req.platform || 'web'; // Default to web if not specified
 
     // Check if there's existing temporary OTP data
     const existingTempData = tempOTPStorage.get(phone);
     
-    if (!existingTempData) {
-      return errorResponse(res, 'No pending OTP found for this phone number', 404);
+    let userRole, userId, isNewUser = false;
+
+    if (existingTempData) {
+      // Use existing data
+      userRole = existingTempData.role;
+      userId = existingTempData.userId;
+      isNewUser = existingTempData.userId === null;
+    } else {
+      // No existing OTP data - find user or prepare for new user
+      const user = await User.findOne({ phone });
+      
+      if (user) {
+        // User exists
+        userRole = user.role;
+        userId = user._id;
+        isNewUser = false;
+        
+        // Check platform restrictions
+        if (platform === 'android' && user.role !== 'broker') {
+          return errorResponse(res, 'Invalid user role for Android login', 400);
+        }
+        if (platform === 'web' && !['broker', 'customer'].includes(user.role)) {
+          return errorResponse(res, 'Invalid user role for web login', 400);
+        }
+      } else {
+        // User doesn't exist - handle based on platform
+        if (platform === 'android') {
+          // Android: Allow new broker registration
+          userRole = 'broker';
+          userId = null;
+          isNewUser = true;
+        } else {
+          // Web: Don't auto-create, require registration first
+          return errorResponse(res, 'User not found. Please register first.', 404, {
+            redirectToRegister: true,
+            message: 'This number is not registered. Please go to the registration page to create an account.'
+          });
+        }
+      }
     }
 
     // Generate new OTP
     const otp = generateOTP();
     
-    // Update existing temporary data with new OTP
+    // Store/update OTP data
     tempOTPStorage.set(phone, {
-      ...existingTempData,
       otp: otp,
+      role: userRole,
+      platform: platform,
+      type: 'login',
+      userId: userId,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
     });
 
     // TODO: Send OTP via SMS
-    console.log(`New OTP for ${phone}: ${otp}`);
+    console.log(`Resend OTP for ${phone}: ${otp}`);
 
     return successResponse(res, 'OTP sent successfully', {
       phone: phone,
-      role: existingTempData.role,
-      platform: existingTempData.platform,
-      type: existingTempData.type,
+      role: userRole,
+      platform: platform,
+      type: 'login',
+      isNewUser: isNewUser,
       otp: otp, // Include OTP in response for testing
       hardcodedOtp: '123456', // Also provide hardcoded OTP for easy testing
       message: 'Use the generated OTP or hardcoded OTP: 123456'
