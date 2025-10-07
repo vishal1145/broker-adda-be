@@ -55,20 +55,6 @@ export const createLead = async (req, res) => {
   try {
     let payload = req.body || {};
 
-    // API-level uniqueness checks (only when values provided)
-    if (payload.customerEmail) {
-      const exists = await Lead.exists({ customerEmail: payload.customerEmail });
-      if (exists) {
-        return errorResponse(res, 'Customer email already exists for another lead', 409);
-      }
-    }
-    if (payload.customerPhone) {
-      const exists = await Lead.exists({ customerPhone: payload.customerPhone });
-      if (exists) {
-        return errorResponse(res, 'Customer phone already exists for another lead', 409);
-      }
-    }
-
     // Validate and map primary/secondary region IDs
     if (!payload.primaryRegion && payload.primaryRegionId) {
       payload.primaryRegion = payload.primaryRegionId;
