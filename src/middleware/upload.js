@@ -73,6 +73,15 @@ export const uploadAllFiles = upload.fields([
   { name: 'customerImage', maxCount: 1 }
 ]);
 
+// Middleware for property media uploads (arrays)
+export const uploadPropertyMedia = upload.fields([
+  // Accept both plain and [] suffixed names
+  { name: 'images', maxCount: 10 },
+  { name: 'images[]', maxCount: 10 },
+  { name: 'videos', maxCount: 5 },
+  { name: 'videos[]', maxCount: 5 }
+]);
+
 // Error handling middleware
 export const handleUploadError = (error, req, res, next) => {
   if (error instanceof multer.MulterError) {

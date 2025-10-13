@@ -2,6 +2,7 @@
 import mongoose from "mongoose";
 import Property from "../models/Property.js";
 import BrokerDetail from "../models/BrokerDetail.js"; // ✅ correct model
+import { getFileUrl } from "../middleware/upload.js";
 
 export const createProperty = async (req, res) => {
   try {
@@ -27,16 +28,38 @@ export const createProperty = async (req, res) => {
     
     if (!exists) return res.status(404).json({ message: "Broker not found." });
 
-    // 3) create
- const doc = await Property.create({
-  title, description, propertyType, subType, price, priceUnit,
-  address, city, region, coordinates, bedrooms, bathrooms,
-  furnishing, amenities, images, videos,
-  broker: brokerId,
-  isFeatured: !!isFeatured,
-  notes,
-  status, // ✅ added
-});
+    // 3) merge uploaded media with any URLs provided in body
+    // Support both 'images' and 'images[]' (same for videos)
+    const rawImages = [
+      ...(req.files?.images || []),
+      ...(req.files?.['images[]'] || [])
+    ];
+    const rawVideos = [
+      ...(req.files?.videos || []),
+      ...(req.files?.['videos[]'] || [])
+    ];
+
+    const uploadedImages = rawImages.map(f => getFileUrl(req, f.path));
+    const uploadedVideos = rawVideos.map(f => getFileUrl(req, f.path));
+
+    const bodyImages = Array.isArray(images) ? images : (images ? [images] : []);
+    const bodyVideos = Array.isArray(videos) ? videos : (videos ? [videos] : []);
+
+    const finalImages = [...bodyImages, ...uploadedImages];
+    const finalVideos = [...bodyVideos, ...uploadedVideos];
+
+    // 4) create
+    const doc = await Property.create({
+      title, description, propertyType, subType, price, priceUnit,
+      address, city, region, coordinates, bedrooms, bathrooms,
+      furnishing, amenities,
+      images: finalImages,
+      videos: finalVideos,
+      broker: brokerId,
+      isFeatured: !!isFeatured,
+      notes,
+      status, // ✅ added
+    });
     // 4) return with populated broker info (fields from BrokerDetail)
     const created = await Property.findById(doc._id)
       .populate("broker", "name email phone firmName licenseNumber status")
