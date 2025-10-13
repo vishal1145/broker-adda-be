@@ -15,7 +15,9 @@ export const getAllBrokers = async (req, res) => {
       status, 
       approvedByAdmin, 
       regionId,
-      search 
+      search,
+      minExperience,
+      maxExperience
     } = req.query;
 
     // Build filter object
@@ -31,6 +33,14 @@ export const getAllBrokers = async (req, res) => {
     
     if (regionId) {
       filter.region = regionId;
+    }
+
+    // Experience range filter (experience.years)
+    if (minExperience !== undefined || maxExperience !== undefined) {
+      const yearsFilter = {};
+      if (minExperience !== undefined) yearsFilter.$gte = Number(minExperience);
+      if (maxExperience !== undefined) yearsFilter.$lte = Number(maxExperience);
+      filter['experience.years'] = yearsFilter;
     }
 
     // Search functionality
