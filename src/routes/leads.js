@@ -10,16 +10,16 @@ const router = express.Router();
 router.post('/', authenticate, validate(createLeadSchema), createLead);
 
 // List leads with filters and pagination
-router.get('/', authenticate, validate(leadQuerySchema, 'query'), getLeads);
+router.get('/', validate(leadQuerySchema, 'query'), getLeads);
 
 // Lead metrics (totals for dashboard)
-router.get('/metrics', authenticate, getLeadMetrics);
+router.get('/metrics', getLeadMetrics);
 
 // List only transferred leads, optionally filter by toBroker/fromBroker
-router.get('/transferred', authenticate, validate(transferredLeadQuerySchema, 'query'), getTransferredLeads);
+router.get('/transferred', validate(transferredLeadQuerySchema, 'query'), getTransferredLeads);
 
 // Get a single lead by id
-router.get('/:id', authenticate, getLeadById);
+router.get('/:id', getLeadById);
 
 // Update a lead
 router.put('/:id', authenticate, validate(updateLeadSchema), updateLead);

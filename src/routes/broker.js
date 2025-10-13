@@ -5,7 +5,7 @@ import {
   approveBroker,
   rejectBroker
 } from '../controllers/brokerController.js';
-import { authenticate, authorize } from '../middleware/auth.js';
+// removed auth for public access
 import { validate } from '../middleware/validation.js';
 import {
   brokerApprovalSchema,
@@ -14,8 +14,7 @@ import {
 } from '../validations/broker.js';
 
 const router = express.Router();
-// All other routes require admin authentication
-router.use(authenticate);
+// Public access for broker routes
 
 // Get all brokers with pagination and filtering (all roles allowed)
 router.get('/', validate(brokerQuerySchema, 'query'), getAllBrokers);
@@ -26,7 +25,7 @@ router.get('/', validate(brokerQuerySchema, 'query'), getAllBrokers);
 // Get single broker details
 router.get('/:id', getBrokerById);
 
-router.use(authorize('admin'));
+// Approval/rejection are public now (no auth)
 // Approve broker
 router.patch('/:id/approve', validate(brokerApprovalSchema), approveBroker);
 
