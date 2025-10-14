@@ -32,7 +32,12 @@ export const completeProfileSchema = Joi.object({
       gst: Joi.string().optional(),
       brokerLicense: Joi.string().optional(),
       companyId: Joi.string().optional()
-    }).optional()
+    }).optional(),
+    // Optional content/about fields
+    aboutUs: Joi.string().max(2000).trim().optional(),
+    content: Joi.string().max(2000).trim().optional(),
+    // Experience: only years accepted
+    experienceYears: Joi.number().integer().min(0).max(50).optional()
   }).optional(),
   customerDetails: Joi.object({
     gender: Joi.string().valid('male', 'female', 'other').required(),
@@ -89,7 +94,18 @@ export const brokerDetailSchema = Joi.object({
     gst: Joi.string().required(),
     brokerLicense: Joi.string().optional(),
     companyId: Joi.string().optional()
-  }).required()
+  }).required(),
+  // About Us field - 1-2 lines only
+  aboutUs: Joi.string().max(200).trim().optional(),
+  // Experience field - format like "3 years", "5 years 9 months"
+  experience: Joi.string()
+    .max(100)
+    .trim()
+    .pattern(/^(\d+)\s*years?\s*(\d+)\s*months?$|^(\d+)\s*years?$/i)
+    .optional()
+    .messages({
+      'string.pattern.base': 'Experience must be in format like "3 years" or "5 years 9 months"'
+    })
 });
 
 // Customer detail validation

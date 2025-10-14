@@ -142,6 +142,34 @@ const brokerDetailSchema = new mongoose.Schema({
   adminNotes: {
     type: String,
     maxlength: [500, 'Admin notes cannot be more than 500 characters']
+  },
+  // New fields for broker content and experience
+  content: {
+    type: String,
+    trim: true,
+    maxlength: [2000, 'Content cannot be more than 2000 characters']
+  },
+  experience: {
+    years: {
+      type: Number,
+      min: [0, 'Experience years cannot be negative'],
+      max: [50, 'Experience years cannot be more than 50']
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: [1000, 'Experience description cannot be more than 1000 characters']
+    },
+    achievements: [{
+      type: String,
+      trim: true,
+      maxlength: [200, 'Each achievement cannot be more than 200 characters']
+    }],
+    certifications: [{
+      type: String,
+      trim: true,
+      maxlength: [200, 'Each certification cannot be more than 200 characters']
+    }]
   }
 }, {
   timestamps: true
