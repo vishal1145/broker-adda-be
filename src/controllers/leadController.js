@@ -131,6 +131,8 @@ export const getLeads = async (req, res) => {
       status,
       propertyType,
       region,
+      city,
+      regionCity,
       regionId,
       requirement,
       budgetMin,
@@ -151,6 +153,14 @@ export const getLeads = async (req, res) => {
     if (createdBy) filter.createdBy = createdBy;
     // Resolve region filter: match either primaryRegion or secondaryRegion
     const resolvedRegionId = regionId || region;
+    // Optional city filter (case-insensitive) against customer address fields if present
+    if (city) {
+      const cityRegex = { $regex: `^${city}$`, $options: 'i' };
+      // If your lead schema has a city field, filter directly; else apply to requirement/address text
+      // Example applying to requirement text as fallback
+      filter.$and = (filter.$and || []);
+      filter.$and.push({ $or: [ { customerCity: cityRegex }, { requirement: { $regex: city, $options: 'i' } } ] });
+    }
     if (resolvedRegionId) {
       const idAsString = String(resolvedRegionId);
       if (!mongoose.Types.ObjectId.isValid(idAsString)) {
@@ -161,6 +171,23 @@ export const getLeads = async (req, res) => {
         { primaryRegion: objectId },
         { secondaryRegion: objectId }
       ];
+    }
+
+    // Filter by Region.city name -> resolve to Region IDs and filter primary/secondary
+    if (regionCity) {
+      const Region = (await import('../models/Region.js')).default;
+      const regions = await Region.find({ city: { $regex: `^${regionCity}$`, $options: 'i' } }).select('_id');
+      const regionIds = regions.map(r => r._id);
+      if (regionIds.length > 0) {
+        filter.$or = [
+          ...(filter.$or || []),
+          { primaryRegion: { $in: regionIds } },
+          { secondaryRegion: { $in: regionIds } }
+        ];
+      } else {
+        // ensure no match
+        filter.$and = [ ...(filter.$and || []), { _id: { $exists: false } } ];
+      }
     }
     if (requirement) filter.requirement = { $regex: requirement, $options: 'i' };
     if (budgetMin || budgetMax) {

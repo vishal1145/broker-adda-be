@@ -15,6 +15,8 @@ export const getAllBrokers = async (req, res) => {
       status, 
       approvedByAdmin, 
       regionId,
+      city,
+      regionCity,
       search,
       minExperience,
       maxExperience
@@ -33,6 +35,23 @@ export const getAllBrokers = async (req, res) => {
     
     if (regionId) {
       filter.region = regionId;
+    }
+
+    if (city) {
+      filter.city = { $regex: `^${city}$`, $options: 'i' };
+    }
+
+    // Filter by Region.city via regionCity param
+    if (regionCity) {
+      const Region = (await import('../models/Region.js')).default;
+      const regions = await Region.find({ city: { $regex: `^${regionCity}$`, $options: 'i' } }).select('_id');
+      const regionIds = regions.map(r => r._id);
+      if (regionIds.length > 0) {
+        filter.region = { $in: regionIds };
+      } else {
+        // Force empty result if no matching regions
+        filter.region = { $in: [] };
+      }
     }
 
     // Experience range filter (experience.years)
