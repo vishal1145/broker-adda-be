@@ -522,7 +522,7 @@ export const verifyOTP = async (req, res) => {
 // Complete profile after OTP verification
 export const completeProfile = async (req, res) => {
   try {
-    const { phone, name, email, ...roleSpecificData } = req.body;
+    const { phone, name, email, content, aboutUs, experienceYears, experienceDescription, achievements, certifications, ...roleSpecificData } = req.body;
     const files = req.files;
 
     const user = await User.findOne({ phone });
@@ -609,15 +609,17 @@ export const completeProfile = async (req, res) => {
           }
         }
 
-        // Map optional profile content/experience to BrokerDetail
-        if (roleSpecificData.brokerDetails) {
-          const bd = roleSpecificData.brokerDetails;
-          if (bd.content) brokerDetail.content = bd.content;
-          if (bd.aboutUs && !bd.content) brokerDetail.content = bd.aboutUs; // back-compat alias
-          if (bd.experienceYears !== undefined) {
-            brokerDetail.experience = brokerDetail.experience || {};
-            brokerDetail.experience.years = bd.experienceYears;
-          }
+        // Map optional profile content/experience to BrokerDetail (support top-level and nested brokerDetails)
+        const bd = roleSpecificData.brokerDetails || {};
+        const finalContent = content || bd.content || bd.aboutUs || aboutUs;
+        if (finalContent) brokerDetail.content = finalContent;
+        const finalYears = experienceYears ?? bd.experienceYears;
+        if (finalYears !== undefined || bd.experienceDescription || bd.achievements || bd.certifications || experienceDescription || achievements || certifications) {
+          brokerDetail.experience = brokerDetail.experience || {};
+          if (finalYears !== undefined) brokerDetail.experience.years = finalYears;
+          if (experienceDescription || bd.experienceDescription) brokerDetail.experience.description = (experienceDescription || bd.experienceDescription);
+          if (Array.isArray(achievements) || Array.isArray(bd.achievements)) brokerDetail.experience.achievements = (achievements || bd.achievements || []);
+          if (Array.isArray(certifications) || Array.isArray(bd.certifications)) brokerDetail.experience.certifications = (certifications || bd.certifications || []);
         }
 
         // Process uploaded files if any
@@ -672,13 +674,17 @@ export const completeProfile = async (req, res) => {
         });
 
         // Map optional content/experience on create
-        if (roleSpecificData.brokerDetails) {
-          const bd = roleSpecificData.brokerDetails;
-          if (bd.content) newBrokerDetail.content = bd.content;
-          if (bd.aboutUs && !bd.content) newBrokerDetail.content = bd.aboutUs;
-          if (bd.experienceYears !== undefined) {
+        {
+          const bd = roleSpecificData.brokerDetails || {};
+          const finalContent = content || bd.content || bd.aboutUs || aboutUs;
+          if (finalContent) newBrokerDetail.content = finalContent;
+          const finalYears = experienceYears ?? bd.experienceYears;
+          if (finalYears !== undefined || bd.experienceDescription || bd.achievements || bd.certifications || experienceDescription || achievements || certifications) {
             newBrokerDetail.experience = newBrokerDetail.experience || {};
-            newBrokerDetail.experience.years = bd.experienceYears;
+            if (finalYears !== undefined) newBrokerDetail.experience.years = finalYears;
+            if (experienceDescription || bd.experienceDescription) newBrokerDetail.experience.description = (experienceDescription || bd.experienceDescription);
+            if (Array.isArray(achievements) || Array.isArray(bd.achievements)) newBrokerDetail.experience.achievements = (achievements || bd.achievements || []);
+            if (Array.isArray(certifications) || Array.isArray(bd.certifications)) newBrokerDetail.experience.certifications = (certifications || bd.certifications || []);
           }
         }
 

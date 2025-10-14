@@ -5,6 +5,13 @@ export const completeProfileSchema = Joi.object({
   phone: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).required(),
   name: Joi.string().required().min(2).max(50).trim(),
   email: Joi.string().email().required().lowercase(),
+  // Optional top-level aliases for broker content/experience
+  content: Joi.string().max(2000).trim().optional(),
+  aboutUs: Joi.string().max(2000).trim().optional(),
+  experienceYears: Joi.number().integer().min(0).max(50).optional(),
+  experienceDescription: Joi.string().max(1000).trim().optional(),
+  achievements: Joi.array().items(Joi.string().max(200).trim()).optional(),
+  certifications: Joi.array().items(Joi.string().max(200).trim()).optional(),
   brokerDetails: Joi.object({
     gender: Joi.string().valid('male', 'female', 'other').required(),
     firmName: Joi.string().required().min(2).max(100).trim(),
@@ -36,8 +43,11 @@ export const completeProfileSchema = Joi.object({
     // Optional content/about fields
     aboutUs: Joi.string().max(2000).trim().optional(),
     content: Joi.string().max(2000).trim().optional(),
-    // Experience: only years accepted
-    experienceYears: Joi.number().integer().min(0).max(50).optional()
+    // Experience: full structure supported
+    experienceYears: Joi.number().integer().min(0).max(50).optional(),
+    experienceDescription: Joi.string().max(1000).trim().optional(),
+    achievements: Joi.array().items(Joi.string().max(200).trim()).optional(),
+    certifications: Joi.array().items(Joi.string().max(200).trim()).optional()
   }).optional(),
   customerDetails: Joi.object({
     gender: Joi.string().valid('male', 'female', 'other').required(),
