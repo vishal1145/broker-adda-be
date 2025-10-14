@@ -609,6 +609,17 @@ export const completeProfile = async (req, res) => {
           }
         }
 
+        // Map optional profile content/experience to BrokerDetail
+        if (roleSpecificData.brokerDetails) {
+          const bd = roleSpecificData.brokerDetails;
+          if (bd.content) brokerDetail.content = bd.content;
+          if (bd.aboutUs && !bd.content) brokerDetail.content = bd.aboutUs; // back-compat alias
+          if (bd.experienceYears !== undefined) {
+            brokerDetail.experience = brokerDetail.experience || {};
+            brokerDetail.experience.years = bd.experienceYears;
+          }
+        }
+
         // Process uploaded files if any
         if (files) {
           // Process kycDocs (PDF files) - update existing kycDocs field
@@ -659,6 +670,17 @@ export const completeProfile = async (req, res) => {
           },
           ...roleSpecificData.brokerDetails
         });
+
+        // Map optional content/experience on create
+        if (roleSpecificData.brokerDetails) {
+          const bd = roleSpecificData.brokerDetails;
+          if (bd.content) newBrokerDetail.content = bd.content;
+          if (bd.aboutUs && !bd.content) newBrokerDetail.content = bd.aboutUs;
+          if (bd.experienceYears !== undefined) {
+            newBrokerDetail.experience = newBrokerDetail.experience || {};
+            newBrokerDetail.experience.years = bd.experienceYears;
+          }
+        }
 
         // Geocode on create if we have address
         const fullAddress = roleSpecificData.brokerDetails.address || '';
