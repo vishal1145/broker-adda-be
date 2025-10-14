@@ -172,7 +172,7 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
     // ---- Query ----
     const [items, total] = await Promise.all([
       Property.find(filter, projection)
-        .populate("broker", "name email phone firmName licenseNumber status")
+        .populate("broker", "name email phone firmName licenseNumber status brokerImage")
         .sort(sort)
         .skip(skip)
         .limit(limitNum)
@@ -225,7 +225,7 @@ export const getPropertyById = async (req, res) => {
     }
 
 const doc = await Property.findById(id, projection)
-  .populate("broker", "name email phone firmName licenseNumber status")
+  .populate("broker", "name email phone firmName licenseNumber status brokerImage")
   // .populate("inquiries", "name email phone message createdAt") // remove/disable
   .lean();
 
@@ -263,7 +263,7 @@ export const approveProperty = async (req, res) => {
     await doc.save();
 
     const populated = await Property.findById(id)
-      .populate("broker", "name email phone firmName licenseNumber status")
+      .populate("broker", "name email phone firmName licenseNumber status brokerImage")
       .lean();
 
     return res.json({ success: true, message: "Property approved", data: populated });
