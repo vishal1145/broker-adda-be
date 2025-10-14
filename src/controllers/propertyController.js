@@ -7,9 +7,11 @@ import { getFileUrl } from "../middleware/upload.js";
 export const createProperty = async (req, res) => {
   try {
     const {
-      title, description, propertyType, subType, price, priceUnit,
+      title, description, propertyDescription, propertySize,
+      propertyType, subType, price, priceUnit,
       address, city, region, coordinates, bedrooms, bathrooms,
-      furnishing, amenities, images, videos,
+      furnishing, amenities, nearbyAmenities, features, locationBenefits,
+      images, videos,
       broker,                   // must be a BrokerDetail _id (not User id)
       isFeatured, notes,status,
     } = req.body;
@@ -50,9 +52,10 @@ export const createProperty = async (req, res) => {
 
     // 4) create
     const doc = await Property.create({
-      title, description, propertyType, subType, price, priceUnit,
+      title, description, propertyDescription, propertySize,
+      propertyType, subType, price, priceUnit,
       address, city, region, coordinates, bedrooms, bathrooms,
-      furnishing, amenities,
+      furnishing, amenities, nearbyAmenities, features, locationBenefits,
       images: finalImages,
       videos: finalVideos,
       broker: brokerId,

@@ -22,6 +22,7 @@ export const createPropertySchema = Joi.object({
   // Basic
   title:        Joi.string().trim().min(3).max(200).required(),
   description:  Joi.string().allow("", null),
+  propertyDescription: Joi.string().allow("", null),
 
   // Type & category
   propertyType: Joi.string().valid(...PROPERTY_TYPES).required(),
@@ -30,6 +31,7 @@ export const createPropertySchema = Joi.object({
   // Pricing
   price:        Joi.number().positive().required(),
   priceUnit:    Joi.string().valid(...PRICE_UNITS).default("INR"),
+  propertySize: Joi.number().positive().optional(),
 
   // Location
   address:      Joi.string().trim().required(),
@@ -42,10 +44,13 @@ export const createPropertySchema = Joi.object({
   bathrooms:    Joi.number().integer().min(0),
   furnishing:   Joi.string().valid(...FURNISHINGS),
   amenities:    Joi.array().items(Joi.string().trim()).default([]),
+  nearbyAmenities: Joi.array().items(Joi.string().trim()).default([]),
+  features:     Joi.array().items(Joi.string().trim()).default([]),
+  locationBenefits: Joi.array().items(Joi.string().trim()).default([]),
 
   // Media
-  images:       Joi.array().items(Joi.string().uri()).default([]),
-  videos:       Joi.array().items(Joi.string().uri()).default([]),
+  images:       Joi.array().items(Joi.string().uri().allow("")) .default([]),
+  videos:       Joi.array().items(Joi.string().uri().allow("")) .default([]),
 
   // Ownership
   broker:       objectId.required(),   // BrokerDetail _id

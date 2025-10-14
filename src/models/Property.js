@@ -4,6 +4,8 @@ const propertySchema = new mongoose.Schema(
   {
     title: { type: String, required: true },
     description: { type: String },
+    // Detailed long description
+    propertyDescription: { type: String },
 
     propertyType: {
       type: String,
@@ -18,6 +20,9 @@ const propertySchema = new mongoose.Schema(
     price: { type: Number, required: true },
     priceUnit: { type: String, enum: ["INR", "USD"], default: "INR" },
 
+    // Property size (numeric, optional)
+    propertySize: { type: Number },
+
     address: { type: String, required: true },
     city: { type: String, default: "Agra" },
     region: { type: String, required: true },
@@ -27,6 +32,12 @@ const propertySchema = new mongoose.Schema(
     bathrooms: { type: Number },
     furnishing: { type: String, enum: ["Furnished","Semi-Furnished","Unfurnished"] },
     amenities: [{ type: String }],
+    // Nearby amenities as separate list
+    nearbyAmenities: [{ type: String }],
+    // Feature highlights
+    features: [{ type: String }],
+    // Location benefits/highlights
+    locationBenefits: [{ type: String }],
 
     images: [{ type: String }],
     videos: [{ type: String }],
