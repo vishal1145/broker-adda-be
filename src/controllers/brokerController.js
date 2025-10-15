@@ -1,5 +1,6 @@
 import BrokerDetail from '../models/BrokerDetail.js';
 import Lead from '../models/Lead.js';
+import Property from '../models/Property.js';
 import User from '../models/User.js';
 import Region from '../models/Region.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
@@ -96,19 +97,29 @@ export const getAllBrokers = async (req, res) => {
     const totalBlockedBrokers = await BrokerDetail.countDocuments({ approvedByAdmin: 'blocked' });
     const totalUnblockedBrokers = await BrokerDetail.countDocuments({ approvedByAdmin: 'unblocked' });
 
-    // Prepare lead stats for each broker
+    // Prepare lead/property stats and property lists for each broker
     const brokerIds = brokers.map(b => b._id);
-    const [leadCountsAgg, leadsBasic] = await Promise.all([
+    const [leadCountsAgg, leadsBasic, propertyCountsAgg, brokerProperties] = await Promise.all([
       Lead.aggregate([
         { $match: { createdBy: { $in: brokerIds } } },
         { $group: { _id: '$createdBy', count: { $sum: 1 } } }
       ]),
       Lead.find({ createdBy: { $in: brokerIds } })
         .select('customerName customerEmail customerPhone requirement propertyType budget status primaryRegion secondaryRegion createdAt updatedAt createdBy')
+        .lean(),
+      Property.aggregate([
+        { $match: { broker: { $in: brokerIds } } },
+        { $group: { _id: '$broker', count: { $sum: 1 } } }
+      ]),
+      Property.find({ broker: { $in: brokerIds } })
+        .select('_id title price priceUnit images status createdAt broker')
+        .sort({ createdAt: -1 })
         .lean()
     ]);
     const brokerIdToLeadCount = new Map(leadCountsAgg.map(x => [String(x._id), x.count]));
+    const brokerIdToPropertyCount = new Map(propertyCountsAgg.map(x => [String(x._id), x.count]));
     const brokerIdToLeads = new Map();
+    const brokerIdToProperties = new Map();
     for (const l of leadsBasic) {
       const key = String(l.createdBy);
       if (!brokerIdToLeads.has(key)) brokerIdToLeads.set(key, []);
@@ -125,6 +136,21 @@ export const getAllBrokers = async (req, res) => {
         secondaryRegion: l.secondaryRegion,
         createdAt: l.createdAt,
         updatedAt: l.updatedAt
+      });
+    }
+
+    // Group properties by broker
+    for (const p of brokerProperties) {
+      const key = String(p.broker);
+      if (!brokerIdToProperties.has(key)) brokerIdToProperties.set(key, []);
+      brokerIdToProperties.get(key).push({
+        _id: p._id,
+        title: p.title,
+        price: p.price,
+        priceUnit: p.priceUnit,
+        images: p.images,
+        status: p.status,
+        createdAt: p.createdAt
       });
     }
 
@@ -156,12 +182,15 @@ export const getAllBrokers = async (req, res) => {
         brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
       }
 
-      // Attach lead stats
+      // Attach lead and property stats
       const key = String(brokerObj._id);
       brokerObj.leadsCreated = {
         count: brokerIdToLeadCount.get(key) || 0,
         items: brokerIdToLeads.get(key) || []
       };
+      brokerObj.leadCount = brokerIdToLeadCount.get(key) || 0;
+      brokerObj.propertyCount = brokerIdToPropertyCount.get(key) || 0;
+      brokerObj.properties = brokerIdToProperties.get(key) || [];
       
       return brokerObj;
     });
@@ -229,17 +258,25 @@ export const getBrokerById = async (req, res) => {
       brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
     }
 
-    // Lead stats for this broker
-    const [leadCount, leads] = await Promise.all([
+    // Lead and property stats for this broker
+    const [leadCount, leads, propertyCount, properties] = await Promise.all([
       Lead.countDocuments({ createdBy: broker._id }),
       Lead.find({ createdBy: broker._id })
         .select('customerName customerEmail customerPhone requirement propertyType budget status primaryRegion secondaryRegion createdAt updatedAt')
+        .lean(),
+      Property.countDocuments({ broker: broker._id }),
+      Property.find({ broker: broker._id })
+        .select('_id title price priceUnit images status createdAt')
+        .sort({ createdAt: -1 })
         .lean()
     ]);
     brokerObj.leadsCreated = {
       count: leadCount,
       items: leads
     };
+    brokerObj.leadCount = leadCount;
+    brokerObj.propertyCount = propertyCount;
+    brokerObj.properties = properties;
 
     return successResponse(res, 'Broker details retrieved successfully', { broker: brokerObj });
 
