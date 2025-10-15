@@ -99,6 +99,7 @@ export const getProperties = async (req, res) => {
       minPrice,
       maxPrice,
       status,                 // 👈 NEW: filter by property status
+      brokerId,               // 👈 NEW: filter by broker (BrokerDetail _id), supports comma-separated
 
       // sorting
       sortBy = "createdAt",   // e.g. createdAt | price | bedrooms
@@ -146,6 +147,21 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
     if (status) {
       const statuses = status.split(",").map(s => s.trim());
       filter.status = { $in: statuses };
+    }
+
+    // 👇 NEW: brokerId filter (supports single or comma-separated list)
+    if (brokerId) {
+      const ids = String(brokerId)
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      const validIds = ids.filter(id => mongoose.isValidObjectId(id));
+      if (validIds.length === 0) {
+        return res.status(400).json({ success: false, message: "Invalid brokerId" });
+      }
+      filter.broker = validIds.length === 1
+        ? validIds[0]
+        : { $in: validIds };
     }
 
     // ---- Pagination & sorting ----
