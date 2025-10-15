@@ -277,6 +277,10 @@ export const getBrokerById = async (req, res) => {
     brokerObj.leadCount = leadCount;
     brokerObj.propertyCount = propertyCount;
     brokerObj.properties = properties;
+    brokerObj.propertiesListed = {
+      count: propertyCount,
+      items: properties
+    };
 
     return successResponse(res, 'Broker details retrieved successfully', { broker: brokerObj });
 
