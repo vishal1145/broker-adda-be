@@ -1,5 +1,6 @@
 import Region from '../models/Region.js';
 import BrokerDetail from '../models/BrokerDetail.js';
+import mongoose from 'mongoose';
 import { geocodeAddress } from '../utils/geocode.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 
@@ -43,29 +44,50 @@ export const getAllRegions = async (req, res) => {
     const sortObj = {};
     sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
-    // Calculate pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const limitNum = parseInt(limit);
+    // Calculate pagination (safe defaults)
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
+    const skip = (pageNum - 1) * limitNum;
 
     // Get total count for pagination
     const totalRegions = await Region.countDocuments(filterQuery);
 
-    // Get regions with filter, sort, and pagination
-    const regions = await Region.find(filterQuery)
-      .select('-__v')
-      .sort(sortObj)
-      .skip(skip)
-      .limit(limitNum);
+    // Get regions with per-region broker counts (brokers referencing this region)
+    const regions = await Region.aggregate([
+      { $match: filterQuery },
+      {
+        $lookup: {
+          from: 'brokerdetails',
+          localField: '_id',
+          foreignField: 'region',
+          as: 'brokers'
+        }
+      },
+      {
+        $addFields: {
+          brokerCount: { $size: '$brokers' }
+        }
+      },
+      {
+        $project: {
+          __v: 0,
+          brokers: 0
+        }
+      },
+      { $sort: sortObj },
+      { $skip: skip },
+      { $limit: limitNum }
+    ]);
 
     // Calculate pagination info
     const totalPages = Math.ceil(totalRegions / limitNum);
-    const hasNextPage = page < totalPages;
-    const hasPrevPage = page > 1;
+    const hasNextPage = pageNum < totalPages;
+    const hasPrevPage = pageNum > 1;
 
     return successResponse(res, 'Regions retrieved successfully', {
       regions,
       pagination: {
-        currentPage: parseInt(page),
+        currentPage: pageNum,
         totalPages,
         totalRegions,
         limit: limitNum,
@@ -187,19 +209,36 @@ export const deleteRegion = async (req, res) => {
 // Get region statistics/counts
 export const getRegionStats = async (req, res) => {
   try {
-    // Get total regions count
-    const totalRegions = await Region.countDocuments();
+    // Optional filters for regions
+    const { regionId, state, city } = req.query || {};
+
+    const regionMatch = {};
+    if (regionId) {
+      const ids = String(regionId)
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (ids.length > 0) {
+        regionMatch._id = { $in: ids.map(id => new mongoose.Types.ObjectId(id)) };
+      }
+    }
+    if (state) regionMatch.state = { $regex: state, $options: 'i' };
+    if (city) regionMatch.city = { $regex: city, $options: 'i' };
+
+    // Get total regions count (after filters)
+    const totalRegions = await Region.countDocuments(regionMatch);
 
     // Get unique states count
-    const uniqueStates = await Region.distinct('state');
+    const uniqueStates = await Region.distinct('state', regionMatch);
     const activeStates = uniqueStates.length;
 
     // Get unique cities count
-    const uniqueCities = await Region.distinct('city');
+    const uniqueCities = await Region.distinct('city', regionMatch);
     const activeCities = uniqueCities.length;
 
-    // Get average brokers per region
+    // Get per-region broker counts (all brokers regardless of status/approval)
     const regionsWithBrokers = await Region.aggregate([
+      { $match: regionMatch },
       {
         $lookup: {
           from: 'brokerdetails',
@@ -209,24 +248,28 @@ export const getRegionStats = async (req, res) => {
         }
       },
       {
-        $addFields: {
-          activeBrokers: {
-            $filter: {
-              input: '$brokers',
-              cond: { $eq: ['$$this.status', 'active'] }
-            }
-          }
-        }
-      },
-      {
         $project: {
           name: 1,
-          brokerCount: { $size: '$activeBrokers' }
+          brokerCount: { $size: '$brokers' },
+          state: 1,
+          city: 1
         }
       }
     ]);
 
-    const totalBrokers = regionsWithBrokers.reduce((sum, region) => sum + region.brokerCount, 0);
+    // Compute total brokers
+    // - If no region filters are applied, count all brokers in the system
+    // - If region filters are applied, count brokers linked to those regions
+    const hasRegionFilters = Boolean(regionMatch._id || regionMatch.state || regionMatch.city);
+    let totalBrokers = 0;
+    if (!hasRegionFilters) {
+      totalBrokers = await BrokerDetail.countDocuments({});
+    } else if (totalRegions > 0) {
+      const regionIds = (await Region.find(regionMatch).select('_id').lean()).map(r => r._id);
+      totalBrokers = regionIds.length > 0
+        ? await BrokerDetail.countDocuments({ region: { $in: regionIds } })
+        : 0;
+    }
     const avgBrokersPerRegion = totalRegions > 0 ? Math.round(totalBrokers / totalRegions) : 0;
 
     return successResponse(res, 'Region statistics retrieved successfully', {
@@ -234,7 +277,8 @@ export const getRegionStats = async (req, res) => {
       activeStates,
       activeCities,
       avgBrokersPerRegion,
-      totalBrokers
+      totalBrokers,
+      regions: regionsWithBrokers
     });
   } catch (error) {
     return serverError(res, error);

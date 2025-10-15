@@ -1,4 +1,5 @@
 import Lead from '../models/Lead.js';
+import Property from '../models/Property.js';
 import mongoose from 'mongoose';
 import { getFileUrl } from '../middleware/upload.js';
 import BrokerDetail from '../models/BrokerDetail.js';
@@ -570,7 +571,7 @@ export const getLeadMetrics = async (req, res) => {
       }
     }
 
-    const [totalLeads, newLeadsToday, convertedLeads, avgDealAgg, transfersToMeAgg, transfersByMeAgg] = await Promise.all([
+    const [totalLeads, newLeadsToday, convertedLeads, avgDealAgg, transfersToMeAgg, transfersByMeAgg, totalProperties] = await Promise.all([
       Lead.countDocuments(matchBase),
       Lead.countDocuments({ ...matchBase, createdAt: { $gte: startOfToday, $lte: endOfToday } }),
       Lead.countDocuments({ ...matchBase, status: 'Closed' }),
@@ -592,7 +593,11 @@ export const getLeadMetrics = async (req, res) => {
             { $match: { 'transfers.fromBroker': new mongoose.Types.ObjectId(String(actorBrokerId)) } },
             { $count: 'count' }
           ])
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      // Total properties (scoped to broker if createdBy provided)
+      createdByBrokerId
+        ? Property.countDocuments({ broker: createdByBrokerId })
+        : Property.countDocuments()
     ]);
 
     const averageDealSize = Array.isArray(avgDealAgg) && avgDealAgg.length > 0 ? avgDealAgg[0].avg : 0;
@@ -605,7 +610,8 @@ export const getLeadMetrics = async (req, res) => {
       convertedLeads,
       averageDealSize,
       transfersToMe,
-      transfersByMe
+      transfersByMe,
+      totalProperties
     });
   } catch (error) {
     return serverError(res, error);
