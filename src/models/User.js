@@ -16,8 +16,11 @@ const userSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
-    required: [true, 'Phone number is required'],
+    required: function() {
+      return this.role !== 'admin';
+    },
     unique: true,
+    sparse: true, // Allows multiple null values
     match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number']
   },
   passwordHash: {
