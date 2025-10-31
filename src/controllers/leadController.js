@@ -143,6 +143,7 @@ export const getLeads = async (req, res) => {
       customerPhone,
       fromDate,
       toDate,
+      verificationStatus,
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
@@ -212,6 +213,11 @@ export const getLeads = async (req, res) => {
       filter.createdAt = {};
       if (fromDate) filter.createdAt.$gte = new Date(fromDate);
       if (toDate) filter.createdAt.$lte = new Date(toDate);
+    }
+
+    // Verification status filter
+    if (verificationStatus) {
+      filter.verificationStatus = verificationStatus;
     }
 
     const pageNum = Number.isFinite(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;

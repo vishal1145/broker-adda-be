@@ -20,7 +20,11 @@ export const getAllBrokers = async (req, res) => {
       regionCity,
       search,
       minExperience,
-      maxExperience
+      maxExperience,
+      verificationStatus,
+      minRating,
+      maxRating,
+      rating
     } = req.query;
 
     // Build filter object
@@ -61,6 +65,20 @@ export const getAllBrokers = async (req, res) => {
       if (minExperience !== undefined) yearsFilter.$gte = Number(minExperience);
       if (maxExperience !== undefined) yearsFilter.$lte = Number(maxExperience);
       filter['experience.years'] = yearsFilter;
+    }
+
+    // Verification status filter
+    if (verificationStatus) {
+      filter.verificationStatus = verificationStatus;
+    }
+
+    // Rating filters
+    if (rating !== undefined) {
+      filter.rating = Number(rating);
+    } else if (minRating !== undefined || maxRating !== undefined) {
+      filter.rating = {};
+      if (minRating !== undefined) filter.rating.$gte = Number(minRating);
+      if (maxRating !== undefined) filter.rating.$lte = Number(maxRating);
     }
 
     // Search functionality
