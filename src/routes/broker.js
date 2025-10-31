@@ -38,7 +38,6 @@ router.patch('/:id/reject', validate(brokerRejectionSchema), rejectBroker);
 // Update broker verification status (Admin only)
 router.patch('/:id/verification', authenticate, updateBrokerVerification);
 
-// Bulk update verification status for all existing brokers and leads (Admin only)
-router.post('/bulk-update-verification', authenticate, updateAllVerificationStatus);
+
 
 export default router;
