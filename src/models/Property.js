@@ -25,8 +25,7 @@ const propertySchema = new mongoose.Schema(
 
     address: { type: String, required: true },
     city: { type: String, default: "Agra" },
-    region: { type: String, required: true },
-    coordinates: { lat: { type: Number }, lng: { type: Number } },
+    region: { type: mongoose.Schema.Types.ObjectId, ref: "Region", required: true },
 
     bedrooms: { type: Number },
     bathrooms: { type: Number },
@@ -43,6 +42,27 @@ const propertySchema = new mongoose.Schema(
     videos: [{ type: String }],
 
     broker: { type: mongoose.Schema.Types.ObjectId, ref: "BrokerDetail", required: true },
+
+    // Listing meta
+    facingDirection: {
+      type: String,
+      enum: ["North", "East", "South", "West"],
+    },
+    possessionStatus: {
+      type: String,
+      enum: ["Ready to Move", "Under Construction", "Upcoming"],
+    },
+    postedBy: {
+      type: String,
+      enum: ["Broker",  "Admin"],
+    },
+    verificationStatus: {
+      type: String,
+      enum: ["Verified", "Unverified"],
+      default: "Unverified"
+    },
+    // Age of property in years (optional). Used for filters like <5, <10, >10
+    propertyAgeYears: { type: Number, min: 0 },
 
     status: {
       type: String,

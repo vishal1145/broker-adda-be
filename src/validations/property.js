@@ -1,8 +1,10 @@
 // src/validations/property.js
 import Joi from "joi";
 
-// Mongo ObjectId helper
-const objectId = Joi.string().hex().length(24);
+// Mongo ObjectId helper (strict 24-hex)
+const objectId = Joi.string().pattern(/^[0-9a-fA-F]{24}$/).messages({
+  'string.pattern.base': 'Invalid ObjectId format'
+});
 
 // Enums same as your Mongoose schema
 const PROPERTY_TYPES = ["Residential", "Commercial", "Plot", "Other"];
@@ -11,11 +13,7 @@ const FURNISHINGS    = ["Furnished", "Semi-Furnished", "Unfurnished"];
 const PRICE_UNITS    = ["INR", "USD"];
 const STATUSES       = ["Active", "Sold", "Expired", "Pending Approval", "Rejected"];
 
-// Nested schema
-const coordinatesSchema = Joi.object({
-  lat: Joi.number().min(-90).max(90),
-  lng: Joi.number().min(-180).max(180),
-}).unknown(false);
+// Removed coordinates schema
 
 // ✅ Create Property schema
 export const createPropertySchema = Joi.object({
@@ -35,9 +33,9 @@ export const createPropertySchema = Joi.object({
 
   // Location
   address:      Joi.string().trim().required(),
-  city:         Joi.string().trim().default("Agra"),
-  region:       Joi.string().trim().required(),
-  coordinates:  coordinatesSchema,
+  city:         Joi.string().trim(),
+  region:       objectId.required(),
+  
 
   // Details
   bedrooms:     Joi.number().integer().min(0),
@@ -61,6 +59,13 @@ export const createPropertySchema = Joi.object({
 
   // Extra
   notes:        Joi.string().max(2000).allow("", null),
+
+  // Listing meta (optional)
+  facingDirection: Joi.string().valid("North","East","South","West"),
+  possessionStatus: Joi.string().valid("Ready to Move","Under Construction","Upcoming"),
+  postedBy: Joi.string().valid("Broker","Builder","Owner","Admin"),
+  verificationStatus: Joi.string().valid("Verified","Unverified").default("Unverified"),
+  propertyAgeYears: Joi.number().integer().min(0),
 }).unknown(false);
 
 // Small middleware helper

@@ -2,6 +2,7 @@
 import mongoose from "mongoose";
 import Property from "../models/Property.js";
 import BrokerDetail from "../models/BrokerDetail.js"; // ✅ correct model
+import Region from "../models/Region.js";
 import { getFileUrl } from "../middleware/upload.js";
 
 export const createProperty = async (req, res) => {
@@ -9,9 +10,15 @@ export const createProperty = async (req, res) => {
     const {
       title, description, propertyDescription, propertySize,
       propertyType, subType, price, priceUnit,
-      address, city, region, coordinates, bedrooms, bathrooms,
+      address, city, region, bedrooms, bathrooms,
       furnishing, amenities, nearbyAmenities, features, locationBenefits,
       images, videos,
+      // listing meta (optional)
+      facingDirection,
+      possessionStatus,
+      postedBy,
+      verificationStatus,
+      propertyAgeYears,
       broker,                   // must be a BrokerDetail _id (not User id)
       isFeatured, notes,status,
     } = req.body;
@@ -30,7 +37,17 @@ export const createProperty = async (req, res) => {
     
     if (!exists) return res.status(404).json({ message: "Broker not found." });
 
-    // 3) merge uploaded media with any URLs provided in body
+    // 3) Validate region as ObjectId and ensure it exists
+    const regionId = region;
+    if (!regionId || !mongoose.isValidObjectId(regionId)) {
+      return res.status(400).json({ message: "Valid region id is required." });
+    }
+    const regionExists = await Region.exists({ _id: regionId });
+    if (!regionExists) {
+      return res.status(404).json({ message: "Region not found." });
+    }
+
+    // 4) merge uploaded media with any URLs provided in body
     // Support both 'images' and 'images[]' (same for videos)
     const rawImages = [
       ...(req.files?.images || []),
@@ -50,11 +67,11 @@ export const createProperty = async (req, res) => {
     const finalImages = [...bodyImages, ...uploadedImages];
     const finalVideos = [...bodyVideos, ...uploadedVideos];
 
-    // 4) create
+    // 5) create
     const doc = await Property.create({
       title, description, propertyDescription, propertySize,
       propertyType, subType, price, priceUnit,
-      address, city, region, coordinates, bedrooms, bathrooms,
+      address, city, region: regionId, bedrooms, bathrooms,
       furnishing, amenities, nearbyAmenities, features, locationBenefits,
       images: finalImages,
       videos: finalVideos,
@@ -62,10 +79,17 @@ export const createProperty = async (req, res) => {
       isFeatured: !!isFeatured,
       notes,
       status, // ✅ added
+      // listing meta
+      facingDirection,
+      possessionStatus,
+      postedBy,
+      verificationStatus,
+      propertyAgeYears,
     });
-    // 4) return with populated broker info (fields from BrokerDetail)
+    // 6) return with populated broker and region info
     const created = await Property.findById(doc._id)
       .populate("broker", "name email phone firmName licenseNumber status")
+      .populate("region", "name description city state centerLocation radius")
       .lean();
 
     return res.status(201).json({ message: "Property created successfully.", data: created });
@@ -89,6 +113,7 @@ export const getProperties = async (req, res) => {
       // seach + filters
       search,                 // matches title/description/address
       city,
+      // region (string) is no longer supported for ObjectId-based region; use regionId instead
       region,
       propertyType,
       subType,
@@ -100,6 +125,15 @@ export const getProperties = async (req, res) => {
       maxPrice,
       status,                 // 👈 NEW: filter by property status
       brokerId,               // 👈 NEW: filter by broker (BrokerDetail _id), supports comma-separated
+      regionId,               // 👈 NEW: filter by region ID
+      // new filters
+      facingDirection,
+      possessionStatus,
+      postedBy,
+      verificationStatus,
+      dateFrom,               // ISO or yyyy-mm-dd
+      dateTo,                 // ISO or yyyy-mm-dd
+      propertyAgeCategory,    // New | <5 | <10 | >10
 
       // sorting
       sortBy = "createdAt",   // e.g. createdAt | price | bedrooms
@@ -107,6 +141,8 @@ export const getProperties = async (req, res) => {
 
       // projection (optional)
       fields,                 // e.g. fields=title,price,city
+      // alias support
+      broker: brokerAlias,
     } = req.query;
 
     // ---- Build filter object ----
@@ -120,12 +156,12 @@ export const getProperties = async (req, res) => {
         { description: regex },
         { address: regex },
         { city: regex },
-        { region: regex },
+        // region is an ObjectId now; do not search it by regex
       ];
     }
 
 if (city) filter.city = { $regex: `^${city}$`, $options: "i" };
-if (region) filter.region = { $regex: `^${region}$`, $options: "i" };
+// region (string) no longer filterable by name here; use regionId
 if (propertyType) filter.propertyType = { $regex: `^${propertyType}$`, $options: "i" };
 if (subType) filter.subType = { $regex: `^${subType}$`, $options: "i" };
 if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" };
@@ -149,9 +185,44 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
       filter.status = { $in: statuses };
     }
 
+    // New field filters (single-value each)
+    if (facingDirection) filter.facingDirection = { $regex: `^${facingDirection}$`, $options: "i" };
+    if (possessionStatus) filter.possessionStatus = { $regex: `^${possessionStatus}$`, $options: "i" };
+    if (postedBy) filter.postedBy = { $regex: `^${postedBy}$`, $options: "i" };
+    if (verificationStatus) filter.verificationStatus = { $regex: `^${verificationStatus}$`, $options: "i" };
+
+    // Date posted range (createdAt)
+    if (dateFrom || dateTo) {
+      filter.createdAt = {};
+      if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) {
+        const end = new Date(dateTo);
+        if (!isNaN(end.getTime())) {
+          // include entire day if only a date is passed
+          end.setHours(23,59,59,999);
+        }
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    // Property age category mapping (based on propertyAgeYears)
+    if (propertyAgeCategory) {
+      const c = String(propertyAgeCategory).trim();
+      if (c === 'New') {
+        filter.propertyAgeYears = { $in: [0, null] };
+      } else if (c === '<5') {
+        filter.propertyAgeYears = { $gte: 0, $lt: 5 };
+      } else if (c === '<10') {
+        filter.propertyAgeYears = { $gte: 0, $lt: 10 };
+      } else if (c === '>10') {
+        filter.propertyAgeYears = { $gt: 10 };
+      }
+    }
+
     // 👇 NEW: brokerId filter (supports single or comma-separated list)
-    if (brokerId) {
-      const ids = String(brokerId)
+    const effectiveBrokerId = brokerId || brokerAlias;
+    if (effectiveBrokerId) {
+      const ids = String(effectiveBrokerId)
         .split(',')
         .map(s => s.trim())
         .filter(Boolean);
@@ -162,6 +233,14 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
       filter.broker = validIds.length === 1
         ? validIds[0]
         : { $in: validIds };
+    }
+
+    // 👇 NEW: regionId filter (single region only)
+    if (regionId) {
+      if (!mongoose.isValidObjectId(regionId)) {
+        return res.status(400).json({ success: false, message: "Invalid regionId" });
+      }
+      filter.region = regionId;
     }
 
     // ---- Pagination & sorting ----
@@ -192,6 +271,7 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
     const [items, total] = await Promise.all([
       Property.find(filter, projection)
         .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+        .populate("region", "name description city state centerLocation radius")
         .sort(sort)
         .skip(skip)
         .limit(limitNum)
@@ -245,6 +325,7 @@ export const getPropertyById = async (req, res) => {
 
 const doc = await Property.findById(id, projection)
   .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+  .populate("region", "name description city state centerLocation radius")
   // .populate("inquiries", "name email phone message createdAt") // remove/disable
   .lean();
 
@@ -274,6 +355,7 @@ export const approveProperty = async (req, res) => {
       // already approved
       const populated = await Property.findById(id)
         .populate("broker", "name email phone firmName licenseNumber status")
+        .populate("region", "name description city state centerLocation radius")
         .lean();
       return res.json({ success: true, message: "Property already active", data: populated });
     }
@@ -283,6 +365,7 @@ export const approveProperty = async (req, res) => {
 
     const populated = await Property.findById(id)
       .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+      .populate("region", "name description city state centerLocation radius")
       .lean();
 
     return res.json({ success: true, message: "Property approved", data: populated });
@@ -313,6 +396,7 @@ export const rejectProperty = async (req, res) => {
 
     const populated = await Property.findById(id)
       .populate("broker", "name email phone firmName licenseNumber status")
+      .populate("region", "name description city state centerLocation radius")
       .lean();
 
     return res.json({ success: true, message: "Property rejected", data: populated });
