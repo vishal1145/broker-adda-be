@@ -5,7 +5,7 @@ import {
   approveBroker,
   rejectBroker,
   updateBrokerVerification,
-  updateAllVerificationStatus
+  
 } from '../controllers/brokerController.js';
 // removed auth for public access
 import { authenticate } from '../middleware/auth.js';
