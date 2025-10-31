@@ -1,5 +1,5 @@
 import express from 'express';
-import { createLead, getLeads, getLeadById, getLeadMetrics, updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer } from '../controllers/leadController.js';
+import { createLead, getLeads, getLeadById, getLeadMetrics, updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer, updateLeadVerification } from '../controllers/leadController.js';
 import { validate } from '../middleware/validation.js';
 import { authenticate } from '../middleware/auth.js';
 import { createLeadSchema, updateLeadSchema, leadQuerySchema, transferAndNotesSchema, transferredLeadQuerySchema } from '../validations/lead.js';
@@ -32,6 +32,9 @@ router.post('/:id/transfer-and-notes', authenticate, validate(transferAndNotesSc
 
 // Delete a specific transfer (requires toBrokerId and fromBroker via query or logged-in broker)
 router.delete('/:id/transfers/:toBrokerId', authenticate, deleteLeadTransfer);
+
+// Update lead verification status (Admin only)
+router.patch('/:id/verification', authenticate, updateLeadVerification);
 
 export default router;
 

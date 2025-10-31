@@ -139,6 +139,24 @@ const brokerDetailSchema = new mongoose.Schema({
     enum: ['blocked', 'unblocked'],
     default: 'unblocked'
   },
+  // Verification status (default: Verified)
+  verificationStatus: {
+    type: String,
+    enum: ['Verified', 'Unverified'],
+    default: 'Verified'
+  },
+  // Optional realtime/availability status for brokers
+  availabilityStatus: {
+    type: String,
+    enum: ['online', 'offline', 'active', 'busy']
+  },
+  // Broker rating (1-5 stars, default 4)
+  rating: {
+    type: Number,
+    min: [1, 'Rating must be at least 1'],
+    max: [5, 'Rating cannot exceed 5'],
+    default: 4
+  },
   adminNotes: {
     type: String,
     maxlength: [500, 'Admin notes cannot be more than 500 characters']
@@ -190,6 +208,17 @@ brokerDetailSchema.pre('save', function(next) {
       this.location.type = 'Point';
     }
   }
+  
+  // Set default rating if not provided
+  if (this.rating === undefined || this.rating === null) {
+    this.rating = 4;
+  }
+  
+  // Set default verificationStatus if not provided
+  if (this.verificationStatus === undefined || this.verificationStatus === null) {
+    this.verificationStatus = 'Verified';
+  }
+  
   next();
 });
 

@@ -3,9 +3,12 @@ import {
   getAllBrokers,
   getBrokerById,
   approveBroker,
-  rejectBroker
+  rejectBroker,
+  updateBrokerVerification,
+  updateAllVerificationStatus
 } from '../controllers/brokerController.js';
 // removed auth for public access
+import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
 import {
   brokerApprovalSchema,
@@ -31,5 +34,11 @@ router.patch('/:id/approve', validate(brokerApprovalSchema), approveBroker);
 
 // Reject broker
 router.patch('/:id/reject', validate(brokerRejectionSchema), rejectBroker);
+
+// Update broker verification status (Admin only)
+router.patch('/:id/verification', authenticate, updateBrokerVerification);
+
+// Bulk update verification status for all existing brokers and leads (Admin only)
+router.post('/bulk-update-verification', authenticate, updateAllVerificationStatus);
 
 export default router;

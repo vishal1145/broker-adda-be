@@ -423,4 +423,69 @@ export const rejectBroker = async (req, res) => {
   }
 };
 
+// Update broker verification status (Admin only)
+export const updateBrokerVerification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { verificationStatus } = req.body;
 
+    // Check admin access
+    if (!req.user || req.user.role !== 'admin') {
+      return errorResponse(res, 'Admin access required', 403);
+    }
+
+    // Validate verificationStatus
+    if (!verificationStatus || !['Verified', 'Unverified'].includes(verificationStatus)) {
+      return errorResponse(res, 'Invalid verificationStatus. Must be "Verified" or "Unverified"', 400);
+    }
+
+    // Find broker
+    const broker = await BrokerDetail.findById(id);
+    
+    if (!broker) {
+      return errorResponse(res, 'Broker not found', 404);
+    }
+
+    // Update verification status
+    broker.verificationStatus = verificationStatus;
+    await broker.save();
+
+    // Get updated broker with populated data
+    const updatedBroker = await BrokerDetail.findById(id)
+      .populate('region', 'name description city state centerLocation radius');
+
+    // Convert file paths to URLs
+    const brokerObj = updatedBroker.toObject();
+    
+    // Convert kycDocs file paths to URLs
+    if (brokerObj.kycDocs) {
+      if (brokerObj.kycDocs.aadhar) {
+        brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
+      }
+      if (brokerObj.kycDocs.pan) {
+        brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+      }
+      if (brokerObj.kycDocs.gst) {
+        brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
+      }
+      if (brokerObj.kycDocs.brokerLicense) {
+        brokerObj.kycDocs.brokerLicense = getFileUrl(req, brokerObj.kycDocs.brokerLicense);
+      }
+      if (brokerObj.kycDocs.companyId) {
+        brokerObj.kycDocs.companyId = getFileUrl(req, brokerObj.kycDocs.companyId);
+      }
+    }
+    
+    // Convert broker image path to URL
+    if (brokerObj.brokerImage) {
+      brokerObj.brokerImage = getFileUrl(req, brokerObj.brokerImage);
+    }
+
+    return successResponse(res, `Broker verification status updated to ${verificationStatus}`, { 
+      broker: brokerObj 
+    });
+
+  } catch (error) {
+    return serverError(res, error);
+  }
+};

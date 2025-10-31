@@ -869,4 +869,81 @@ export const deleteLeadTransfer = async (req, res) => {
   }
 };
 
+// Update lead verification status (Admin only)
+export const updateLeadVerification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { verificationStatus } = req.body;
+
+    // Check admin access
+    if (!req.user || req.user.role !== 'admin') {
+      return errorResponse(res, 'Admin access required', 403);
+    }
+
+    // Validate verificationStatus
+    if (!verificationStatus || !['Verified', 'Unverified'].includes(verificationStatus)) {
+      return errorResponse(res, 'Invalid verificationStatus. Must be "Verified" or "Unverified"', 400);
+    }
+
+    // Find lead
+    const lead = await Lead.findById(id);
+    
+    if (!lead) {
+      return errorResponse(res, 'Lead not found', 404);
+    }
+
+    // Update verification status
+    lead.verificationStatus = verificationStatus;
+    await lead.save();
+
+    // Get updated lead with populated data
+    const updatedLead = await Lead.findById(id)
+      .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
+      .populate({ path: 'primaryRegion', select: 'name state city description' })
+      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({
+        path: 'transfers.fromBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.toBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .lean();
+
+    // Convert brokerImage paths to URLs
+    if (updatedLead.createdBy && typeof updatedLead.createdBy === 'object') {
+      updatedLead.createdBy.brokerImage = getFileUrl(req, updatedLead.createdBy.brokerImage);
+    }
+    if (Array.isArray(updatedLead.transfers)) {
+      updatedLead.transfers = updatedLead.transfers.map(t => {
+        const tr = { ...t };
+        if (tr.fromBroker && typeof tr.fromBroker === 'object') {
+          tr.fromBroker.brokerImage = getFileUrl(req, tr.fromBroker.brokerImage);
+          const regions = Array.isArray(tr.fromBroker.region) ? tr.fromBroker.region : [];
+          tr.fromBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
+          tr.fromBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+        }
+        if (tr.toBroker && typeof tr.toBroker === 'object') {
+          tr.toBroker.brokerImage = getFileUrl(req, tr.toBroker.brokerImage);
+          const regions = Array.isArray(tr.toBroker.region) ? tr.toBroker.region : [];
+          tr.toBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
+          tr.toBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+        }
+        return tr;
+      });
+    }
+    updatedLead.region = updatedLead.primaryRegion;
+
+    return successResponse(res, `Lead verification status updated to ${verificationStatus}`, { 
+      lead: updatedLead 
+    });
+
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
 

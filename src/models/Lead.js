@@ -31,6 +31,13 @@ const leadSchema = new mongoose.Schema(
       },
     ],
 
+    // Verification status (default: Verified)
+    verificationStatus: {
+      type: String,
+      enum: ['Verified', 'Unverified'],
+      default: 'Verified'
+    },
+
   
     updatedAt: { type: Date, default: Date.now },
 
@@ -43,6 +50,12 @@ const leadSchema = new mongoose.Schema(
 // Keep explicit updatedAt in sync on save
 leadSchema.pre('save', function(next) {
   this.updatedAt = new Date();
+  
+  // Set default verificationStatus if not provided
+  if (this.verificationStatus === undefined || this.verificationStatus === null) {
+    this.verificationStatus = 'Verified';
+  }
+  
   next();
 });
 
