@@ -81,6 +81,7 @@ export const leadQuerySchema = Joi.object({
   customerPhone: Joi.string().optional(),
   fromDate: Joi.date().iso().optional(),
   toDate: Joi.date().iso().optional(),
+  verificationStatus: Joi.string().valid('Verified', 'Unverified').optional(),
   sortBy: Joi.string().valid('createdAt', 'updatedAt', 'customerName', 'status').default('createdAt'),
   sortOrder: Joi.string().valid('asc', 'desc').default('desc')
 });
