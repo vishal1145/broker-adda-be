@@ -950,6 +950,13 @@ export const updateLeadVerification = async (req, res) => {
   } catch (error) {
     return serverError(res, error);
   }
+};  export const getFullLeadsByBrokerId = async (req, res) => {
+  try {
+    const {brokerId} = req.params;
+    console.log('brokerId',brokerId);
+    const leads = await Lead.find({ createdBy: brokerId });
+    return successResponse(res, 'Leads retrieved successfully', { leads });
+  } catch (error) {
+    return serverError(res, error);
+  }
 };
-
-

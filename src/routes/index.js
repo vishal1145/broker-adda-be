@@ -5,7 +5,7 @@ import customerRoutes from './customer.js';
 import regionRoutes from './regions.js';
 import leadRoutes from './leads.js';
 import propertyRoutes from './propertyRoutes.js';
-
+import chatRoutes from './chat.js';
 const router = express.Router();
 
 // API routes
@@ -15,6 +15,7 @@ router.use('/customers', customerRoutes);
 router.use('/regions', regionRoutes);
 router.use('/leads', leadRoutes);
 router.use('/properties', propertyRoutes);
+router.use('/chats', chatRoutes);
 
 export default router;
 

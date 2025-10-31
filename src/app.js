@@ -8,11 +8,21 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import routes from './routes/index.js';
 import { errorResponse } from './utils/response.js';
+import { Server } from 'socket.io';
+import http from 'http';
+import Message from './models/Message.js';
+import Chat from './models/Chat.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: { origin: '*' },
+});
 
 // Middleware
 app.use(helmet({
@@ -37,13 +47,62 @@ app.use(cors({
   exposedHeaders: ['Content-Disposition'],
   optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 }));
+
+io.use(async (socket, next) => {
+  try {
+    socket.user = { id: socket.handshake.auth.userId };
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
+  }
+});
+
+io.on('connection', (socket) => {
+  const userId = socket.user.id;
+  socket.join(`user_${userId}`); 
+
+  socket.on('open_chat', async ({ chatId }) => {
+    socket.join(`chat_${chatId}`);
+  });
+
+  socket.on('send_message', async (data) => {
+    const msg = await Message.create({
+      chatId: data.chatId,
+      from: userId,
+      to: data.to,
+      text: data.text,
+      attachments: data.attachments || [],
+      leadCards: data.leadCard || []
+    });
+
+    console.log('message', msg);
+
+    await Chat.findByIdAndUpdate(data.chatId, {
+      lastMessage: msg._id,
+      $inc: { [`unreadCounts.${data.to}`]: 1 }
+    });
+
+    io.to(`chat_${data.chatId}`).emit('message', msg);
+  });
+
+  socket.on('mark_read', async ({ chatId, messageIds }) => {
+    await Message.updateMany({ _id: { $in: messageIds }, to: userId }, { status: 'read' });
+    await Chat.findByIdAndUpdate(chatId, { $set: { [`unreadCounts.${userId}`]: 0 }});
+    io.to(`chat_${chatId}`).emit('message_status', { messageIds, status: 'read', userId });
+  });
+
+  socket.on('typing', ({ chatId, isTyping }) => {
+    socket.to(`chat_${chatId}`).emit('typing', { userId, isTyping });
+  });
+});
+
+
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Serve static files from uploads directory with proper CORS headers
 app.use('/uploads', (req, res, next) => {
   // Set CORS headers for static files
   res.header('Access-Control-Allow-Origin', '*');
@@ -87,6 +146,8 @@ app.use('/uploads', (req, res, next) => {
 // Routes
 app.use('/api', routes);
 
+
+
 // 404 handler
 app.use((req, res) => {
   return errorResponse(res, `Route ${req.originalUrl} not found`, 404);
@@ -99,3 +160,4 @@ app.use((err, req, res, next) => {
 });
 
 export default app;
+export { server };

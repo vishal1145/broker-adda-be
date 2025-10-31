@@ -1,5 +1,5 @@
 import express from 'express';
-import { createLead, getLeads, getLeadById, getLeadMetrics, updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer, updateLeadVerification } from '../controllers/leadController.js';
+import { createLead, getLeads, getLeadById, getLeadMetrics, getFullLeadsByBrokerId,  updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer } from '../controllers/leadController.js';
 import { validate } from '../middleware/validation.js';
 import { authenticate } from '../middleware/auth.js';
 import { createLeadSchema, updateLeadSchema, leadQuerySchema, transferAndNotesSchema, transferredLeadQuerySchema } from '../validations/lead.js';
@@ -17,6 +17,9 @@ router.get('/metrics', getLeadMetrics);
 
 // List only transferred leads, optionally filter by toBroker/fromBroker
 router.get('/transferred', validate(transferredLeadQuerySchema, 'query'), getTransferredLeads);
+
+// Get full leads by broker ID (must come before /:id to avoid route conflict)
+router.get('/all/:brokerId', authenticate, getFullLeadsByBrokerId);
 
 // Get a single lead by id
 router.get('/:id', getLeadById);
