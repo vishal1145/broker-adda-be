@@ -24,7 +24,8 @@ export const getAllBrokers = async (req, res) => {
       verificationStatus,
       minRating,
       maxRating,
-      rating
+      rating,
+      specialization
     } = req.query;
 
     // Build filter object
@@ -79,6 +80,11 @@ export const getAllBrokers = async (req, res) => {
       filter.rating = {};
       if (minRating !== undefined) filter.rating.$gte = Number(minRating);
       if (maxRating !== undefined) filter.rating.$lte = Number(maxRating);
+    }
+
+    // Specialization filter (matches if broker has this specialization in their array)
+    if (specialization) {
+      filter.specializations = { $in: [specialization] };
     }
 
     // Search functionality

@@ -76,5 +76,6 @@ export const brokerQuerySchema = Joi.object({
   verificationStatus: Joi.string().valid('Verified', 'Unverified').optional(),
   rating: Joi.number().integer().min(1).max(5).optional(),
   minRating: Joi.number().integer().min(1).max(5).optional(),
-  maxRating: Joi.number().integer().min(1).max(5).optional()
+  maxRating: Joi.number().integer().min(1).max(5).optional(),
+  specialization: Joi.string().trim().optional()
 });
