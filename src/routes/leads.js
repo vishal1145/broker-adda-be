@@ -1,5 +1,5 @@
 import express from 'express';
-import { createLead, getLeads, getLeadById, getLeadMetrics, getFullLeadsByBrokerId,  updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer } from '../controllers/leadController.js';
+import { createLead, getLeads, getLeadById, getLeadMetrics, updateLeadVerification, getFullLeadsByBrokerId,  updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer } from '../controllers/leadController.js';
 import { validate } from '../middleware/validation.js';
 import { authenticate } from '../middleware/auth.js';
 import { createLeadSchema, updateLeadSchema, leadQuerySchema, transferAndNotesSchema, transferredLeadQuerySchema } from '../validations/lead.js';
