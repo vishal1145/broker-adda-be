@@ -289,7 +289,14 @@ export const getLeads = async (req, res) => {
         .sort(sort)
         .skip(skip)
         .limit(limitNum)
-        .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
+        .populate({
+          path: 'createdBy',
+          select: 'name email phone firmName brokerImage userId',
+          populate: {
+            path: 'userId',
+            select: '_id name email phone role'
+          }
+        })
         .populate({ path: 'primaryRegion', select: 'name state city' })
         .populate({ path: 'secondaryRegion', select: 'name state city' })
         .populate({
@@ -357,7 +364,14 @@ export const getLeadById = async (req, res) => {
   try {
     const { id } = req.params;
     const lead = await Lead.findById(id)
-      .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
+      .populate({
+        path: 'createdBy',
+        select: 'name email phone firmName brokerImage userId',
+        populate: {
+          path: 'userId',
+          select: '_id name email phone role'
+        }
+      })
       .populate({ path: 'primaryRegion', select: 'name state city description' })
       .populate({ path: 'secondaryRegion', select: 'name state city description' })
       .populate({
@@ -531,7 +545,14 @@ export const getTransferredLeads = async (req, res) => {
         .sort(sort)
         .skip(skip)
         .limit(limitNum)
-        .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
+        .populate({
+          path: 'createdBy',
+          select: 'name email phone firmName brokerImage userId',
+          populate: {
+            path: 'userId',
+            select: '_id name email phone role'
+          }
+        })
         .populate({ path: 'primaryRegion', select: 'name state city' })
         .populate({ path: 'secondaryRegion', select: 'name state city' })
         .populate({
