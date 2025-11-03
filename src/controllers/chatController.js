@@ -78,7 +78,7 @@ export const getMyChats = async (req, res) => {
         .sort({ updatedAt: -1 })
         .populate({
           path: 'lastMessage',
-          select: 'text from to createdAt',
+          select: 'text from to createdAt leadCards attachments',
           populate: { path: 'from', select: 'name brokerImage' } 
         })
         .lean();
