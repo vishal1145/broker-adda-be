@@ -282,7 +282,8 @@ export const verifyOTP = async (req, res) => {
         phone: phone,
         role: tempData.role,
         status: 'pending',
-        isPhoneVerified: true
+        isPhoneVerified: true,
+
       });
       await user.save();
 
@@ -315,7 +316,7 @@ export const verifyOTP = async (req, res) => {
             brokerLicense: '',
             companyId: ''
           },
-          brokerImage: 'https://www.w3schools.com/howto/img_avatar.png',
+          brokerImage: 'https://www.vhv.rs/dpng/d/312-3120300_default-profile-hd-png-download.png',
           status: 'active',
           approvedByAdmin: 'unblocked'
         });
