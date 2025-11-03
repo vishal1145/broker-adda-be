@@ -87,5 +87,60 @@ export const validate = (schema, where = "body") => (req, res, next) => {
   next();
 };
 
+// Update Property schema (all fields optional except id)
+export const updatePropertySchema = Joi.object({
+  // Basic
+  title:        Joi.string().trim().min(3).max(200).optional(),
+  description:  Joi.string().allow("", null).optional(),
+  propertyDescription: Joi.string().allow("", null).optional(),
+
+  // Type & category
+  propertyType: Joi.string().valid(...PROPERTY_TYPES).optional(),
+  subType:      Joi.string().valid(...SUB_TYPES).allow("", null).optional(),
+
+  // Pricing
+  price:        Joi.number().positive().optional(),
+  priceUnit:    Joi.string().valid(...PRICE_UNITS).optional(),
+  propertySize: Joi.number().positive().optional(),
+
+  // Location
+  address:      Joi.string().trim().optional(),
+  city:         Joi.string().trim().optional(),
+  region:       objectId.optional(),
+
+  // Details
+  bedrooms:     Joi.number().integer().min(0).optional(),
+  bathrooms:    Joi.number().integer().min(0).optional(),
+  furnishing:   Joi.string().valid(...FURNISHINGS).optional(),
+  amenities:    Joi.array().items(Joi.string().trim()).optional(),
+  nearbyAmenities: Joi.array().items(Joi.string().trim()).optional(),
+  features:     Joi.array().items(Joi.string().trim()).optional(),
+  locationBenefits: Joi.array().items(Joi.string().trim()).optional(),
+
+  // Media
+  images:       Joi.array().items(Joi.string().uri().allow("")).optional(),
+  videos:       Joi.array().items(Joi.string().uri().allow("")).optional(),
+
+  // Ownership
+  broker:       objectId.optional(),   // BrokerDetail _id
+
+  // Status & workflow
+  status:       Joi.string().valid(...STATUSES).optional(),
+  isFeatured:   Joi.boolean().optional(),
+
+  // Extra
+  notes:        Joi.string().max(2000).allow("", null).optional(),
+
+  // Listing meta (optional)
+  facingDirection: Joi.string().valid("North","East","South","West").optional(),
+  possessionStatus: Joi.string().valid("Ready to Move","Under Construction","Upcoming").optional(),
+  postedBy: Joi.string().valid("Broker","Builder","Owner","Admin").optional(),
+  verificationStatus: Joi.string().valid("Verified","Unverified").optional(),
+  propertyAgeYears: Joi.number().integer().min(0).optional(),
+}).unknown(false);
+
 // Ready-to-use middleware for create
 export const validateCreateProperty = validate(createPropertySchema, "body");
+
+// Ready-to-use middleware for update
+export const validateUpdateProperty = validate(updatePropertySchema, "body");

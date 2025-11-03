@@ -786,7 +786,14 @@ export const updateLead = async (req, res) => {
       { ...payload, updatedAt: new Date() },
       { new: true, runValidators: true }
     )
-      .populate({ path: 'createdBy', select: 'name email phone firmName' })
+      .populate({
+        path: 'createdBy',
+        select: 'name email phone firmName userId',
+        populate: {
+          path: 'userId',
+          select: '_id name email phone role'
+        }
+      })
       .populate({ path: 'primaryRegion', select: 'name state city description' })
       .populate({ path: 'secondaryRegion', select: 'name state city description' })
       .populate({
@@ -984,7 +991,14 @@ export const updateLeadVerification = async (req, res) => {
 
     // Get updated lead with populated data
     const updatedLead = await Lead.findById(id)
-      .populate({ path: 'createdBy', select: 'name email phone firmName brokerImage' })
+      .populate({
+        path: 'createdBy',
+        select: 'name email phone firmName brokerImage userId',
+        populate: {
+          path: 'userId',
+          select: '_id name email phone role'
+        }
+      })
       .populate({ path: 'primaryRegion', select: 'name state city description' })
       .populate({ path: 'secondaryRegion', select: 'name state city description' })
       .populate({

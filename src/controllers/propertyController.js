@@ -428,3 +428,152 @@ export const getPropertyMetrics = async (req, res) => {
     });
   }
 };
+
+// Update property
+export const updateProperty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    // Validate property ID
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid property id" });
+    }
+
+    // Check if property exists
+    const existingProperty = await Property.findById(id);
+    if (!existingProperty) {
+      return res.status(404).json({ success: false, message: "Property not found" });
+    }
+
+    // Authorization check: Allow update if user is admin OR if broker owns the property
+    if (req.user?.role !== "admin") {
+      if (req.user?.role === "broker") {
+        // Check if the broker owns this property
+        const broker = await BrokerDetail.findOne({ userId: req.user._id }).select('_id');
+        if (!broker || String(existingProperty.broker) !== String(broker._id)) {
+          return res.status(403).json({ success: false, message: "You don't have permission to update this property" });
+        }
+      } else {
+        return res.status(403).json({ success: false, message: "Unauthorized" });
+      }
+    }
+
+    // Validate region if provided
+    if (updateData.region) {
+      if (!mongoose.isValidObjectId(updateData.region)) {
+        return res.status(400).json({ success: false, message: "Valid region id is required." });
+      }
+      const regionExists = await Region.exists({ _id: updateData.region });
+      if (!regionExists) {
+        return res.status(404).json({ success: false, message: "Region not found." });
+      }
+    }
+
+    // Validate broker if provided
+    if (updateData.broker) {
+      if (!mongoose.isValidObjectId(updateData.broker)) {
+        return res.status(400).json({ success: false, message: "Valid broker id is required." });
+      }
+      const brokerExists = await BrokerDetail.exists({ _id: updateData.broker });
+      if (!brokerExists) {
+        return res.status(404).json({ success: false, message: "Broker not found." });
+      }
+    }
+
+    // Handle image/video uploads if provided via files
+    const rawImages = [
+      ...(req.files?.images || []),
+      ...(req.files?.['images[]'] || [])
+    ];
+    const rawVideos = [
+      ...(req.files?.videos || []),
+      ...(req.files?.['videos[]'] || [])
+    ];
+
+    const uploadedImages = rawImages.map(f => getFileUrl(req, f.path));
+    const uploadedVideos = rawVideos.map(f => getFileUrl(req, f.path));
+
+    // Merge uploaded files with body-provided URLs
+    const bodyImages = Array.isArray(updateData.images) ? updateData.images : (updateData.images ? [updateData.images] : []);
+    const bodyVideos = Array.isArray(updateData.videos) ? updateData.videos : (updateData.videos ? [updateData.videos] : []);
+
+    // If new files uploaded, merge them with existing or replace
+    if (uploadedImages.length > 0 || uploadedVideos.length > 0) {
+      updateData.images = [...bodyImages, ...uploadedImages];
+      updateData.videos = [...bodyVideos, ...uploadedVideos];
+    } else if (updateData.images !== undefined || updateData.videos !== undefined) {
+      // If explicitly provided, use them
+      if (updateData.images !== undefined) {
+        updateData.images = Array.isArray(updateData.images) ? updateData.images : [updateData.images];
+      }
+      if (updateData.videos !== undefined) {
+        updateData.videos = Array.isArray(updateData.videos) ? updateData.videos : [updateData.videos];
+      }
+    }
+
+    // Update the property
+    const updatedProperty = await Property.findByIdAndUpdate(
+      id,
+      { ...updateData, updatedAt: new Date() },
+      { new: true, runValidators: true }
+    )
+      .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+      .populate("region", "name description city state centerLocation radius")
+      .lean();
+
+    return res.json({
+      success: true,
+      message: "Property updated successfully",
+      data: updatedProperty
+    });
+  } catch (err) {
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ success: false, message: "Validation failed.", details: err.errors });
+    }
+    console.error("updateProperty error:", err);
+    return res.status(500).json({ success: false, message: "Server error.", error: err.message });
+  }
+};
+
+// Delete property
+export const deleteProperty = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate property ID
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid property id" });
+    }
+
+    // Check if property exists
+    const property = await Property.findById(id);
+    if (!property) {
+      return res.status(404).json({ success: false, message: "Property not found" });
+    }
+
+    // Authorization check: Allow delete if user is admin OR if broker owns the property
+    if (req.user?.role !== "admin") {
+      if (req.user?.role === "broker") {
+        // Check if the broker owns this property
+        const broker = await BrokerDetail.findOne({ userId: req.user._id }).select('_id');
+        if (!broker || String(property.broker) !== String(broker._id)) {
+          return res.status(403).json({ success: false, message: "You don't have permission to delete this property" });
+        }
+      } else {
+        return res.status(403).json({ success: false, message: "Unauthorized" });
+      }
+    }
+
+    // Delete the property
+    await Property.findByIdAndDelete(id);
+
+    return res.json({
+      success: true,
+      message: "Property deleted successfully"
+    });
+  } catch (err) {
+    console.error("deleteProperty error:", err);
+    return res.status(500).json({ success: false, message: "Server error.", error: err.message });
+  }
+};

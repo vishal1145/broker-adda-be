@@ -1,8 +1,18 @@
 import { Router } from "express";
-import { createProperty, getProperties,getPropertyById, approveProperty, rejectProperty ,getPropertyMetrics } from "../controllers/propertyController.js";
+import { 
+  createProperty, 
+  getProperties,
+  getPropertyById, 
+  approveProperty, 
+  rejectProperty,
+  getPropertyMetrics,
+  updateProperty,
+  deleteProperty
+} from "../controllers/propertyController.js";
 import { validate } from "../middleware/validation.js";
-import { validateCreateProperty } from "../validations/property.js"
+import { validateCreateProperty, validateUpdateProperty } from "../validations/property.js"
 import { uploadPropertyMedia, handleUploadError } from "../middleware/upload.js";
+import { authenticate } from "../middleware/auth.js";
 
 
 const router = Router();
@@ -15,9 +25,13 @@ router.post("/", uploadPropertyMedia, handleUploadError, validateCreateProperty,
 // GET /api/properties → list properties with filters + pagination
 router.get("/", getProperties);
 router.get("/:id", getPropertyById);
-router.patch("/:id/approve", approveProperty);
-router.patch("/:id/reject",  rejectProperty);
 
+// Admin-only routes
+router.patch("/:id/approve", authenticate, approveProperty);
+router.patch("/:id/reject", authenticate, rejectProperty);
 
+// Update and delete routes (authenticated - broker can update/delete their own, admin can do all)
+router.put("/:id", authenticate, uploadPropertyMedia, handleUploadError, validateUpdateProperty, updateProperty);
+router.delete("/:id", authenticate, deleteProperty);
 
 export default router;
