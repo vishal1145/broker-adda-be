@@ -25,7 +25,9 @@ export const getAllBrokers = async (req, res) => {
       minRating,
       maxRating,
       rating,
-      specialization
+      specialization,
+      sortBy,
+      sortOrder
     } = req.query;
 
     // Build filter object
@@ -106,10 +108,24 @@ export const getAllBrokers = async (req, res) => {
     // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    // Build sort object
+    let sort = { createdAt: -1 }; // Default sort
+    if (sortBy) {
+      const allowedSortFields = ['rating', 'createdAt', 'name', 'firmName', 'experience.years'];
+      if (allowedSortFields.includes(sortBy)) {
+        const order = sortOrder === 'asc' ? 1 : -1;
+        sort = { [sortBy]: order };
+      }
+    } else if (sortOrder) {
+      // If only sortOrder provided without sortBy, apply to default createdAt
+      const order = sortOrder === 'asc' ? 1 : -1;
+      sort = { createdAt: order };
+    }
+
     // Get brokers with populated region data
     const brokers = await BrokerDetail.find(filter)
       .populate('region', 'name description city state centerLocation radius')
-      .sort({ createdAt: -1 })
+      .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
 

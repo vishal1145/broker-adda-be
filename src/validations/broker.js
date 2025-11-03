@@ -45,7 +45,7 @@ export const brokerUpdateSchema = Joi.object({
     companyId: Joi.string().optional()
   }).optional(),
   brokerImage: Joi.string().optional(),
-  status: Joi.string().valid('active', 'inactive').optional(),
+  status: Joi.string().valid('active', 'inactive','online','busy').optional(),
   approvedByAdmin: Joi.string().valid('blocked', 'unblocked').optional(),
   adminNotes: Joi.string().max(500).optional(),
   // New fields
@@ -63,7 +63,7 @@ export const brokerRejectionSchema = Joi.object({});
 export const brokerQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),
-  status: Joi.string().valid('active', 'inactive').optional(),
+  status: Joi.string().valid('active', 'inactive','online','busy').optional(),
   approvedByAdmin: Joi.string().valid('blocked', 'unblocked').optional(),
   city: Joi.string().trim().optional(),
   regionCity: Joi.string().trim().optional(),
@@ -77,5 +77,8 @@ export const brokerQuerySchema = Joi.object({
   rating: Joi.number().integer().min(1).max(5).optional(),
   minRating: Joi.number().integer().min(1).max(5).optional(),
   maxRating: Joi.number().integer().min(1).max(5).optional(),
-  specialization: Joi.string().trim().optional()
+  specialization: Joi.string().trim().optional(),
+  // Sorting parameters
+  sortBy: Joi.string().valid('rating', 'createdAt', 'name', 'firmName', 'experience.years').optional(),
+  sortOrder: Joi.string().valid('asc', 'desc').optional()
 });

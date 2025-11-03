@@ -135,12 +135,15 @@ export const getLeads = async (req, res) => {
       city,
       regionCity,
       regionId,
+      primaryRegionId,
+      secondaryRegionId,
       requirement,
       budgetMin,
       budgetMax,
       createdBy,
       customerEmail,
       customerPhone,
+      dateRange,
       fromDate,
       toDate,
       verificationStatus,
@@ -153,7 +156,25 @@ export const getLeads = async (req, res) => {
     if (status) filter.status = status;
     if (propertyType) filter.propertyType = propertyType;
     if (createdBy) filter.createdBy = createdBy;
-    // Resolve region filter: match either primaryRegion or secondaryRegion
+    // Filter by primary region (specific filter)
+    if (primaryRegionId) {
+      const idAsString = String(primaryRegionId);
+      if (!mongoose.Types.ObjectId.isValid(idAsString)) {
+        return errorResponse(res, 'Invalid primaryRegionId format', 400);
+      }
+      filter.primaryRegion = new mongoose.Types.ObjectId(idAsString);
+    }
+
+    // Filter by secondary region (specific filter)
+    if (secondaryRegionId) {
+      const idAsString = String(secondaryRegionId);
+      if (!mongoose.Types.ObjectId.isValid(idAsString)) {
+        return errorResponse(res, 'Invalid secondaryRegionId format', 400);
+      }
+      filter.secondaryRegion = new mongoose.Types.ObjectId(idAsString);
+    }
+
+    // Resolve region filter: match either primaryRegion or secondaryRegion (for backward compatibility)
     const resolvedRegionId = regionId || region;
     // Optional city filter (case-insensitive) against customer address fields if present
     if (city) {
@@ -163,7 +184,8 @@ export const getLeads = async (req, res) => {
       filter.$and = (filter.$and || []);
       filter.$and.push({ $or: [ { customerCity: cityRegex }, { requirement: { $regex: city, $options: 'i' } } ] });
     }
-    if (resolvedRegionId) {
+    // Only apply regionId filter if primaryRegionId and secondaryRegionId are not set
+    if (resolvedRegionId && !primaryRegionId && !secondaryRegionId) {
       const idAsString = String(resolvedRegionId);
       if (!mongoose.Types.ObjectId.isValid(idAsString)) {
         return errorResponse(res, 'Invalid regionId format', 400);
@@ -209,10 +231,47 @@ export const getLeads = async (req, res) => {
       ];
     }
 
-    if (fromDate || toDate) {
+    // Date range filter - handle preset ranges or custom dates
+    if (dateRange) {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
       filter.createdAt = {};
-      if (fromDate) filter.createdAt.$gte = new Date(fromDate);
-      if (toDate) filter.createdAt.$lte = new Date(toDate);
+      
+      switch (dateRange.toLowerCase()) {
+        case 'today':
+          filter.createdAt.$gte = startOfToday;
+          filter.createdAt.$lte = endOfToday;
+          break;
+        case 'last7days':
+          const last7Days = new Date(now);
+          last7Days.setDate(now.getDate() - 7);
+          last7Days.setHours(0, 0, 0, 0);
+          filter.createdAt.$gte = last7Days;
+          filter.createdAt.$lte = endOfToday;
+          break;
+        case 'last30days':
+          const last30Days = new Date(now);
+          last30Days.setDate(now.getDate() - 30);
+          last30Days.setHours(0, 0, 0, 0);
+          filter.createdAt.$gte = last30Days;
+          filter.createdAt.$lte = endOfToday;
+          break;
+      }
+    } else if (fromDate || toDate) {
+      // Custom date range
+      filter.createdAt = {};
+      if (fromDate) {
+        const from = new Date(fromDate);
+        from.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = from;
+      }
+      if (toDate) {
+        const to = new Date(toDate);
+        to.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = to;
+      }
     }
 
     // Verification status filter
