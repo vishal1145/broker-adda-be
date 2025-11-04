@@ -56,12 +56,31 @@ export const saveProperty = async (req, res) => {
 };
 
 /**
- * Get all saved properties for the authenticated user
+ * Get all saved properties for the authenticated user or by userId parameter
  */
 export const getSavedProperties = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const { page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20, userId: queryUserId } = req.query;
+    const authenticatedUserId = req.user._id;
+    
+    // Determine which userId to use
+    let userId;
+    if (queryUserId) {
+      // Validate userId format
+      if (!mongoose.Types.ObjectId.isValid(queryUserId)) {
+        return errorResponse(res, 'Invalid userId format', 400);
+      }
+      
+      // Allow admin to query any user, or users to query their own
+      if (req.user.role === 'admin' || queryUserId === authenticatedUserId.toString()) {
+        userId = queryUserId;
+      } else {
+        return errorResponse(res, 'You can only view your own saved properties', 403);
+      }
+    } else {
+      // Default to authenticated user
+      userId = authenticatedUserId;
+    }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -119,6 +138,7 @@ export const getSavedProperties = async (req, res) => {
 
     return successResponse(res, 'Saved properties retrieved successfully', {
       savedProperties: processedProperties,
+      userId: userId.toString(),
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(totalSaved / parseInt(limit)),
@@ -197,16 +217,37 @@ export const checkIfSaved = async (req, res) => {
 };
 
 /**
- * Get count of saved properties for the user
+ * Get count of saved properties for the user or by userId parameter
  */
 export const getSavedPropertyCount = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const { userId: queryUserId } = req.query;
+    const authenticatedUserId = req.user._id;
+    
+    // Determine which userId to use
+    let userId;
+    if (queryUserId) {
+      // Validate userId format
+      if (!mongoose.Types.ObjectId.isValid(queryUserId)) {
+        return errorResponse(res, 'Invalid userId format', 400);
+      }
+      
+      // Allow admin to query any user, or users to query their own
+      if (req.user.role === 'admin' || queryUserId === authenticatedUserId.toString()) {
+        userId = queryUserId;
+      } else {
+        return errorResponse(res, 'You can only view your own saved property count', 403);
+      }
+    } else {
+      // Default to authenticated user
+      userId = authenticatedUserId;
+    }
 
     const count = await SavedProperty.countDocuments({ userId });
 
     return successResponse(res, 'Saved property count retrieved', {
-      count
+      count,
+      userId: userId.toString()
     });
 
   } catch (error) {
