@@ -41,7 +41,7 @@ const customerDetailSchema = new mongoose.Schema({
     },
     propertyType: [{
       type: String,
-      enum: ['apartment', 'villa', 'plot', 'commercial', 'house']
+      enum: ['residential', 'plot', 'commercial', 'other']
     }],
     region: [{
       type: mongoose.Schema.Types.ObjectId,

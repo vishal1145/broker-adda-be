@@ -56,7 +56,7 @@ export const completeProfileSchema = Joi.object({
       budgetMin: Joi.number().min(0).required(),
       budgetMax: Joi.number().min(0).required(),
       propertyType: Joi.array().items(
-        Joi.string().valid('apartment', 'villa', 'plot', 'commercial', 'house')
+        Joi.string().valid('residential', 'plot', 'commercial', 'other')
       ).min(1).required(),
       region: Joi.array().items(
         Joi.string().pattern(/^[0-9a-fA-F]{24}$/)
@@ -127,7 +127,7 @@ export const customerDetailSchema = Joi.object({
     budgetMin: Joi.number().min(0).required(),
     budgetMax: Joi.number().min(0).required(),
     propertyType: Joi.array().items(
-      Joi.string().valid('apartment', 'villa', 'plot', 'commercial', 'house')
+      Joi.string().valid('residential',  'plot', 'commercial', 'other')
     ).min(1).required(),
     region: Joi.array().items(
       Joi.string().pattern(/^[0-9a-fA-F]{24}$/)
