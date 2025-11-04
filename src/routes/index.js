@@ -19,7 +19,7 @@ router.use('/leads', leadRoutes);
 router.use('/properties', propertyRoutes);
 router.use('/chats', chatRoutes);
 router.use('/notifications', notificationRoutes);
-router.use('/saved-properties', savedPropertyRoutes);
+// router.use('/saved-properties', savedPropertyRoutes);
 
 export default router;
 
