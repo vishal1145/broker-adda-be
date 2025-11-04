@@ -4,6 +4,8 @@ import mongoose from 'mongoose';
 import { getFileUrl } from '../middleware/upload.js';
 import BrokerDetail from '../models/BrokerDetail.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
+import { createLeadNotification, createTransferNotification } from '../utils/notifications.js';
+import User from '../models/User.js';
 
 // Helpers
 const findBrokerDetailIdByUserId = async (userId) => {
@@ -109,6 +111,38 @@ export const createLead = async (req, res) => {
 
     const lead = new Lead(payload);
     await lead.save();
+    
+    // Create notification for lead creation
+    try {
+      const admins = await User.find({ role: 'admin', status: 'active' }).select('_id');
+      const adminIds = admins.map(admin => admin._id.toString());
+      
+      // Notify admin users about new lead
+      await Promise.all(
+        admins.map(admin =>
+          createLeadNotification(admin._id, 'created', lead, req.user)
+        )
+      );
+      
+      // Notify the creator broker if they're not already notified (not an admin and not the same user)
+      if (payload.createdBy) {
+        const broker = await BrokerDetail.findById(payload.createdBy).select('userId');
+        if (broker?.userId) {
+          const brokerUserId = broker.userId._id || broker.userId;
+          const brokerUserIdStr = brokerUserId.toString();
+          const reqUserIdStr = req.user?._id?.toString();
+          
+          // Only notify if: not the same user AND not already notified as admin
+          if (brokerUserIdStr !== reqUserIdStr && !adminIds.includes(brokerUserIdStr)) {
+            await createLeadNotification(brokerUserId, 'created', lead, req.user);
+          }
+        }
+      }
+    } catch (notifError) {
+      // Don't fail the request if notification fails
+      console.error('Error creating lead notification:', notifError);
+    }
+    
     // Back-compat alias for clients expecting `region`
     const leadCreated = lead.toObject ? lead.toObject() : lead;
     leadCreated.region = leadCreated.primaryRegion;
@@ -829,6 +863,44 @@ export const updateLead = async (req, res) => {
       }
     }
 
+    // Create notification if status changed
+    if (payload.status && payload.status !== existingLead.status) {
+      try {
+        // Notify the lead creator
+        if (updatedLead.createdBy?.userId) {
+          const creatorUserId = updatedLead.createdBy.userId._id || updatedLead.createdBy.userId;
+          await createLeadNotification(
+            creatorUserId,
+            'statusChanged',
+            updatedLead,
+            req.user
+          );
+        }
+        // Notify brokers involved in transfers
+        if (Array.isArray(updatedLead.transfers) && updatedLead.transfers.length > 0) {
+          const brokerIds = [
+            ...new Set(
+              updatedLead.transfers
+                .map(t => [t.fromBroker?._id || t.fromBroker, t.toBroker?._id || t.toBroker])
+                .flat()
+                .filter(Boolean)
+            )
+          ];
+          await Promise.all(
+            brokerIds.map(async (brokerId) => {
+              const broker = await BrokerDetail.findById(brokerId).select('userId');
+              if (broker?.userId) {
+                const brokerUserId = broker.userId._id || broker.userId;
+                await createLeadNotification(brokerUserId, 'statusChanged', updatedLead, req.user);
+              }
+            })
+          );
+        }
+      } catch (notifError) {
+        console.error('Error creating status change notification:', notifError);
+      }
+    }
+
     return successResponse(res, 'Lead updated successfully', { lead: leadUpdated });
   } catch (error) {
     // Duplicate key error from Mongo for unique indexes
@@ -848,6 +920,36 @@ export const deleteLead = async (req, res) => {
     const lead = await Lead.findById(id);
     if (!lead) {
       return errorResponse(res, 'Lead not found', 404);
+    }
+
+    // Create notification before deleting
+    try {
+      // Notify admin users about lead deletion
+      const admins = await User.find({ role: 'admin', status: 'active' }).select('_id');
+      const adminIds = admins.map(admin => admin._id.toString());
+      
+      await Promise.all(
+        admins.map(admin =>
+          createLeadNotification(admin._id, 'deleted', lead, req.user)
+        )
+      );
+      
+      // Notify the lead creator (only if not already notified as admin)
+      if (lead.createdBy) {
+        const broker = await BrokerDetail.findById(lead.createdBy).select('userId');
+        if (broker?.userId) {
+          const brokerUserId = broker.userId._id || broker.userId;
+          const brokerUserIdStr = brokerUserId.toString();
+          const reqUserIdStr = req.user?._id?.toString();
+          
+          // Only notify if: not the same user AND not already notified as admin
+          if (brokerUserIdStr !== reqUserIdStr && !adminIds.includes(brokerUserIdStr)) {
+            await createLeadNotification(brokerUserId, 'deleted', lead, req.user);
+          }
+        }
+      }
+    } catch (notifError) {
+      console.error('Error creating lead deletion notification:', notifError);
     }
 
     // Delete the lead
@@ -907,6 +1009,20 @@ export const transferAndNotes = async (req, res) => {
     }
 
     await lead.save();
+    
+    // Create notifications for transferred brokers
+    try {
+      const fromBroker = await BrokerDetail.findById(fromId).select('name userId').populate('userId', 'name');
+      await Promise.all(
+        uniqueTo.map(toBrokerId =>
+          createTransferNotification(toBrokerId, fromId, lead, fromBroker?.userId || req.user)
+        )
+      );
+    } catch (notifError) {
+      // Don't fail the request if notification fails
+      console.error('Error creating transfer notification:', notifError);
+    }
+    
     return successResponse(res, 'Transfer(s) and notes processed successfully', { lead });
   } catch (error) {
     return serverError(res, error);

@@ -6,6 +6,7 @@ import Region from '../models/Region.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 import { getFileUrl } from '../middleware/upload.js';
 import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../utils/brokerCount.js';
+import { createNotification } from '../utils/notifications.js';
 
 // Get all brokers (with pagination and filtering) - All roles allowed
 export const getAllBrokers = async (req, res) => {
@@ -355,6 +356,34 @@ export const approveBroker = async (req, res) => {
       await updateMultipleRegionBrokerCounts(broker.region);
     }
 
+    // Create notification for broker approval
+    try {
+      if (broker.userId) {
+        await createNotification({
+          userId: broker.userId,
+          type: 'approval',
+          title: 'Broker Account Approved',
+          message: 'Your broker account has been approved and unblocked by admin.',
+          priority: 'high',
+          relatedEntity: {
+            entityType: 'BrokerDetail',
+            entityId: broker._id
+          },
+          activity: {
+            action: 'approved',
+            actorId: req.user?._id,
+            actorName: req.user?.name || 'Admin'
+          },
+          metadata: {
+            brokerId: broker._id,
+            status: 'unblocked'
+          }
+        });
+      }
+    } catch (notifError) {
+      console.error('Error creating broker approval notification:', notifError);
+    }
+
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)
       .populate('region', 'name description name description city state centerLocation radius');
@@ -423,6 +452,34 @@ export const rejectBroker = async (req, res) => {
       await updateMultipleRegionBrokerCounts(broker.region);
     }
 
+    // Create notification for broker rejection/blocking
+    try {
+      if (broker.userId) {
+        await createNotification({
+          userId: broker.userId,
+          type: 'approval',
+          title: 'Broker Account Blocked',
+          message: 'Your broker account has been blocked by admin. Please contact support for more information.',
+          priority: 'high',
+          relatedEntity: {
+            entityType: 'BrokerDetail',
+            entityId: broker._id
+          },
+          activity: {
+            action: 'blocked',
+            actorId: req.user?._id,
+            actorName: req.user?.name || 'Admin'
+          },
+          metadata: {
+            brokerId: broker._id,
+            status: 'blocked'
+          }
+        });
+      }
+    } catch (notifError) {
+      console.error('Error creating broker rejection notification:', notifError);
+    }
+
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)
       .populate('region', 'name description city state centerLocation radius');
@@ -489,6 +546,34 @@ export const updateBrokerVerification = async (req, res) => {
     // Update verification status
     broker.verificationStatus = verificationStatus;
     await broker.save();
+
+    // Create notification for verification status change
+    try {
+      if (broker.userId) {
+        await createNotification({
+          userId: broker.userId,
+          type: 'approval',
+          title: `Broker Verification Status: ${verificationStatus}`,
+          message: `Your broker verification status has been updated to ${verificationStatus} by admin.`,
+          priority: verificationStatus === 'Verified' ? 'high' : 'medium',
+          relatedEntity: {
+            entityType: 'BrokerDetail',
+            entityId: broker._id
+          },
+          activity: {
+            action: 'verificationUpdated',
+            actorId: req.user?._id,
+            actorName: req.user?.name || 'Admin'
+          },
+          metadata: {
+            brokerId: broker._id,
+            verificationStatus
+          }
+        });
+      }
+    } catch (notifError) {
+      console.error('Error creating verification notification:', notifError);
+    }
 
     // Get updated broker with populated data
     const updatedBroker = await BrokerDetail.findById(id)

@@ -4,6 +4,8 @@ import Property from "../models/Property.js";
 import BrokerDetail from "../models/BrokerDetail.js"; // ✅ correct model
 import Region from "../models/Region.js";
 import { getFileUrl } from "../middleware/upload.js";
+import { createPropertyNotification, createNotification } from "../utils/notifications.js";
+import User from "../models/User.js";
 
 export const createProperty = async (req, res) => {
   try {
@@ -91,6 +93,34 @@ export const createProperty = async (req, res) => {
       .populate("broker", "name email phone firmName licenseNumber status")
       .populate("region", "name description city state centerLocation radius")
       .lean();
+
+    // Create notifications for property creation
+    try {
+      // Notify admin users about new property
+      const admins = await User.find({ role: 'admin', status: 'active' }).select('_id');
+      const adminIds = admins.map(admin => admin._id.toString());
+      
+      await Promise.all(
+        admins.map(admin =>
+          createPropertyNotification(admin._id, 'created', created, req.user)
+        )
+      );
+
+      // Notify the broker who created the property (only if not already notified as admin)
+      const broker = await BrokerDetail.findById(brokerId).select('userId');
+      if (broker?.userId) {
+        const brokerUserId = broker.userId._id || broker.userId;
+        const brokerUserIdStr = brokerUserId.toString();
+        const reqUserIdStr = req.user?._id?.toString();
+        
+        // Only notify if: not the same user AND not already notified as admin
+        if (brokerUserIdStr !== reqUserIdStr && !adminIds.includes(brokerUserIdStr)) {
+          await createPropertyNotification(brokerUserId, 'created', created, req.user);
+        }
+      }
+    } catch (notifError) {
+      console.error('Error creating property notification:', notifError);
+    }
 
     return res.status(201).json({ message: "Property created successfully.", data: created });
   } catch (err) {
@@ -368,6 +398,16 @@ export const approveProperty = async (req, res) => {
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
+    // Create notification for property approval
+    try {
+      const broker = await BrokerDetail.findById(populated.broker._id || populated.broker).select('userId');
+      if (broker?.userId) {
+        await createPropertyNotification(broker.userId, 'approved', populated, req.user);
+      }
+    } catch (notifError) {
+      console.error('Error creating approval notification:', notifError);
+    }
+
     return res.json({ success: true, message: "Property approved", data: populated });
   } catch (err) {
     console.error("approveProperty error:", err);
@@ -398,6 +438,16 @@ export const rejectProperty = async (req, res) => {
       .populate("broker", "name email phone firmName licenseNumber status")
       .populate("region", "name description city state centerLocation radius")
       .lean();
+
+    // Create notification for property rejection
+    try {
+      const broker = await BrokerDetail.findById(populated.broker._id || populated.broker).select('userId');
+      if (broker?.userId) {
+        await createPropertyNotification(broker.userId, 'rejected', populated, req.user);
+      }
+    } catch (notifError) {
+      console.error('Error creating rejection notification:', notifError);
+    }
 
     return res.json({ success: true, message: "Property rejected", data: populated });
   } catch (err) {
@@ -522,6 +572,18 @@ export const updateProperty = async (req, res) => {
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
+    // Create notification if status changed
+    if (updateData.status && updateData.status !== existingProperty.status) {
+      try {
+        const broker = await BrokerDetail.findById(updatedProperty.broker._id || updatedProperty.broker).select('userId');
+        if (broker?.userId) {
+          await createPropertyNotification(broker.userId, 'updated', updatedProperty, req.user);
+        }
+      } catch (notifError) {
+        console.error('Error creating update notification:', notifError);
+      }
+    }
+
     return res.json({
       success: true,
       message: "Property updated successfully",
@@ -563,6 +625,16 @@ export const deleteProperty = async (req, res) => {
       } else {
         return res.status(403).json({ success: false, message: "Unauthorized" });
       }
+    }
+
+    // Create notification before deleting
+    try {
+      const broker = await BrokerDetail.findById(property.broker).select('userId');
+      if (broker?.userId) {
+        await createPropertyNotification(broker.userId, 'deleted', property, req.user);
+      }
+    } catch (notifError) {
+      console.error('Error creating deletion notification:', notifError);
     }
 
     // Delete the property
