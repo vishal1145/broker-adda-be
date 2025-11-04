@@ -12,6 +12,7 @@ import { Server } from 'socket.io';
 import http from 'http';
 import Message from './models/Message.js';
 import Chat from './models/Chat.js';
+import User from './models/User.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -81,6 +82,39 @@ io.on('connection', (socket) => {
       lastMessage: msg._id,
       $inc: { [`unreadCounts.${data.to}`]: 1 }
     });
+
+    // Create notification for new message
+    try {
+      const { createNotification } = await import('./utils/notifications.js');
+      const fromUser = await User.findById(userId).select('name');
+      
+      await createNotification({
+        userId: data.to,
+        type: 'message',
+        title: 'New Message',
+        message: fromUser?.name 
+          ? `You have a new message from ${fromUser.name}${data.text ? `: ${data.text.substring(0, 50)}${data.text.length > 50 ? '...' : ''}` : ''}`
+          : `You have a new message${data.text ? `: ${data.text.substring(0, 50)}${data.text.length > 50 ? '...' : ''}` : ''}`,
+        priority: 'medium',
+        relatedEntity: {
+          entityType: 'Message',
+          entityId: msg._id
+        },
+        activity: {
+          action: 'sent',
+          actorId: userId,
+          actorName: fromUser?.name
+        },
+        metadata: {
+          chatId: data.chatId,
+          messageId: msg._id,
+          hasAttachments: (data.attachments || []).length > 0,
+          hasLeadCards: (data.leadCard || []).length > 0
+        }
+      });
+    } catch (notifError) {
+      console.error('Error creating message notification:', notifError);
+    }
 
     io.to(`chat_${data.chatId}`).emit('message', msg);
   });
