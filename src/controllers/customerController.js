@@ -47,6 +47,7 @@ export const getAllCustomers = async (req, res) => {
 
       if (customerDetail) {
         data.gender = customerDetail.gender;
+        data.dateOfBirth = customerDetail.dateOfBirth;
         data.preferences = customerDetail.preferences;
         data.savedSearches = customerDetail.savedSearches;
         data.inquiryCount = customerDetail.inquiryCount;
@@ -109,6 +110,7 @@ export const getCustomerById = async (req, res) => {
     // Add customer details if available
     if (customerDetail) {
       responseData.gender = customerDetail.gender;
+      responseData.dateOfBirth = customerDetail.dateOfBirth;
       responseData.preferences = customerDetail.preferences;
       responseData.savedSearches = customerDetail.savedSearches;
       responseData.inquiryCount = customerDetail.inquiryCount;

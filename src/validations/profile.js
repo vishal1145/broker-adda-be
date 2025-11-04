@@ -51,6 +51,7 @@ export const completeProfileSchema = Joi.object({
   }).optional(),
   customerDetails: Joi.object({
     gender: Joi.string().valid('male', 'female', 'other').required(),
+    dateOfBirth: Joi.date().optional().allow(null),
     preferences: Joi.object({
       budgetMin: Joi.number().min(0).required(),
       budgetMax: Joi.number().min(0).required(),
@@ -121,6 +122,7 @@ export const brokerDetailSchema = Joi.object({
 // Customer detail validation
 export const customerDetailSchema = Joi.object({
   gender: Joi.string().valid('male', 'female', 'other').required(),
+  dateOfBirth: Joi.date().optional().allow(null),
   preferences: Joi.object({
     budgetMin: Joi.number().min(0).required(),
     budgetMax: Joi.number().min(0).required(),

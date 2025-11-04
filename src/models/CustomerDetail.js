@@ -26,6 +26,10 @@ const customerDetailSchema = new mongoose.Schema({
     enum: ['male', 'female', 'other'],
     required: true
   },
+  dateOfBirth: {
+    type: Date,
+    default: null
+  },
   preferences: {
     budgetMin: {
       type: Number,
