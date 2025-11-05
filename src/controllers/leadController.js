@@ -13,6 +13,54 @@ const findBrokerDetailIdByUserId = async (userId) => {
   return broker ? broker._id : null;
 };
 
+const findBrokerDetailWithRegionsByUserId = async (userId) => {
+  const broker = await BrokerDetail.findOne({ userId }).select('_id region');
+  return broker;
+};
+
+const buildTransferFilterForBroker = (brokerDetailId, brokerRegions = []) => {
+  if (!brokerDetailId) return null;
+
+  const brokerRegionIds = brokerRegions.map(r => 
+    mongoose.Types.ObjectId.isValid(r) ? new mongoose.Types.ObjectId(String(r)) : r
+  ).filter(Boolean);
+
+  // Build filter based on shareType:
+  // 1. 'all' - show to all brokers (no specific broker filter needed)
+  // 2. 'region' - show to brokers whose region array contains transfer.region
+  // 3. 'individual' - show only to the specific broker (transfer.toBroker)
+  return {
+    $or: [
+      // Individual transfers: broker is the toBroker
+      {
+        'transfers': {
+          $elemMatch: {
+            shareType: 'individual',
+            toBroker: brokerDetailId
+          }
+        }
+      },
+      // Region transfers: broker has the same region as transfer.region
+      ...(brokerRegionIds.length > 0 ? [{
+        'transfers': {
+          $elemMatch: {
+            shareType: 'region',
+            region: { $in: brokerRegionIds }
+          }
+        }
+      }] : []),
+      // All transfers: show to all brokers (brokerDetailId can be any broker)
+      {
+        'transfers': {
+          $elemMatch: {
+            shareType: 'all'
+          }
+        }
+      }
+    ]
+  };
+};
+
 const applyBrokerDefaults = (payload, brokerDetailId) => {
   if (!brokerDetailId) return payload;
 
@@ -23,10 +71,25 @@ const applyBrokerDefaults = (payload, brokerDetailId) => {
   }
 
   if (Array.isArray(updated.transfers)) {
-    updated.transfers = updated.transfers.map(t => ({
-      fromBroker: t?.fromBroker || brokerDetailId,
-      toBroker: t?.toBroker
-    }));
+    updated.transfers = updated.transfers.map(t => {
+      const shareType = t?.shareType || 'individual';
+      const transfer = {
+        fromBroker: t?.fromBroker || brokerDetailId,
+        shareType: shareType
+      };
+      
+      // Only add toBroker if shareType is 'individual'
+      if (shareType === 'individual' && t?.toBroker) {
+        transfer.toBroker = t.toBroker;
+      }
+      
+      // Only add region if shareType is 'region'
+      if (shareType === 'region' && t?.region) {
+        transfer.region = t.region;
+      }
+      
+      return transfer;
+    });
   }
 
   return updated;
@@ -313,6 +376,38 @@ export const getLeads = async (req, res) => {
       filter.verificationStatus = verificationStatus;
     }
 
+    // If logged-in broker, filter leads based on transfer shareType
+    if (req.user && req.user.role === 'broker') {
+      try {
+        const brokerDetail = await findBrokerDetailWithRegionsByUserId(req.user._id);
+        if (brokerDetail) {
+          const brokerDetailId = brokerDetail._id;
+          const brokerRegions = Array.isArray(brokerDetail.region) ? brokerDetail.region : [];
+          
+          // Build transfer filter based on shareType
+          const transferFilter = buildTransferFilterForBroker(brokerDetailId, brokerRegions);
+          
+          // Also include leads created by this broker
+          const brokerFilter = {
+            $or: [
+              { createdBy: brokerDetailId },
+              ...(transferFilter ? [transferFilter] : [])
+            ]
+          };
+          
+          // Merge with existing filter
+          if (filter.$and) {
+            filter.$and.push(brokerFilter);
+          } else {
+            filter.$and = [brokerFilter];
+          }
+        }
+      } catch (err) {
+        console.error('Error building broker filter:', err);
+        // Non-fatal: continue without broker filter if lookup fails
+      }
+    }
+
     const pageNum = Number.isFinite(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;
     const limitNum = Number.isFinite(parseInt(limit)) && parseInt(limit) > 0 ? parseInt(limit) : 10;
     const skip = (pageNum - 1) * limitNum;
@@ -527,41 +622,220 @@ export const getTransferredLeads = async (req, res) => {
 
     // Add transfer-specific filters
     const matchTransfers = {};
+    const transferConditions = [];
+    
+    // Handle explicit query parameter filters
     if (toBroker) {
       if (!mongoose.Types.ObjectId.isValid(String(toBroker))) {
         return errorResponse(res, 'Invalid toBroker format', 400);
       }
-      matchTransfers['transfers.toBroker'] = new mongoose.Types.ObjectId(String(toBroker));
+      const toBrokerId = new mongoose.Types.ObjectId(String(toBroker));
+      
+      // Get broker details to check regions for shareType: "region" filtering
+      try {
+        const brokerDetail = await BrokerDetail.findById(toBrokerId).select('region');
+        const brokerRegions = brokerDetail ? (Array.isArray(brokerDetail.region) ? brokerDetail.region : []) : [];
+        const brokerRegionIds = brokerRegions.map(r => 
+          mongoose.Types.ObjectId.isValid(r) ? new mongoose.Types.ObjectId(String(r)) : r
+        ).filter(Boolean);
+        
+        const toBrokerConditions = [
+          // Individual transfers: broker is the toBroker
+          {
+            'transfers': {
+              $elemMatch: {
+                shareType: 'individual',
+                toBroker: toBrokerId
+              }
+            }
+          },
+          // All transfers: visible to all brokers
+          {
+            'transfers': {
+              $elemMatch: {
+                shareType: 'all'
+              }
+            }
+          }
+        ];
+        
+        // Region transfers: broker's region array contains transfer's region
+        if (brokerRegionIds.length > 0) {
+          toBrokerConditions.push({
+            'transfers': {
+              $elemMatch: {
+                shareType: 'region',
+                region: { $in: brokerRegionIds }
+              }
+            }
+          });
+        }
+        
+        transferConditions.push({
+          $or: toBrokerConditions
+        });
+      } catch (err) {
+        // Fallback to individual only if broker lookup fails
+        transferConditions.push({
+          'transfers': {
+            $elemMatch: {
+              shareType: 'individual',
+              toBroker: toBrokerId
+            }
+          }
+        });
+      }
     }
+    
     if (fromBroker) {
       if (!mongoose.Types.ObjectId.isValid(String(fromBroker))) {
         return errorResponse(res, 'Invalid fromBroker format', 400);
       }
-      matchTransfers['transfers.fromBroker'] = new mongoose.Types.ObjectId(String(fromBroker));
+      const fromBrokerId = new mongoose.Types.ObjectId(String(fromBroker));
+      transferConditions.push({
+        'transfers.fromBroker': fromBrokerId
+      });
     }
+    
     if (brokerId) {
       if (!mongoose.Types.ObjectId.isValid(String(brokerId))) {
         return errorResponse(res, 'Invalid brokerId format', 400);
       }
       const brokerObjectId = new mongoose.Types.ObjectId(String(brokerId));
-      matchTransfers.$or = [
-        { 'transfers.fromBroker': brokerObjectId },
-        { 'transfers.toBroker': brokerObjectId }
-      ];
+      
+      // Get broker details to check regions
+      try {
+        const brokerDetail = await BrokerDetail.findById(brokerObjectId).select('region');
+        const brokerRegions = brokerDetail ? (Array.isArray(brokerDetail.region) ? brokerDetail.region : []) : [];
+        const brokerRegionIds = brokerRegions.map(r => 
+          mongoose.Types.ObjectId.isValid(r) ? new mongoose.Types.ObjectId(String(r)) : r
+        ).filter(Boolean);
+        
+        const brokerIdConditions = [
+          { 'transfers.fromBroker': brokerObjectId },
+          {
+            'transfers': {
+              $elemMatch: {
+                shareType: 'individual',
+                toBroker: brokerObjectId
+              }
+            }
+          },
+          {
+            'transfers': {
+              $elemMatch: {
+                shareType: 'all'
+              }
+            }
+          }
+        ];
+        
+        // Add region condition if broker has regions
+        if (brokerRegionIds.length > 0) {
+          brokerIdConditions.push({
+            'transfers': {
+              $elemMatch: {
+                shareType: 'region',
+                region: { $in: brokerRegionIds }
+              }
+            }
+          });
+        }
+        
+        transferConditions.push({
+          $or: brokerIdConditions
+        });
+      } catch (err) {
+        // Fallback to simple check if broker lookup fails
+        transferConditions.push({
+          $or: [
+            { 'transfers.fromBroker': brokerObjectId },
+            {
+              'transfers': {
+                $elemMatch: {
+                  shareType: 'individual',
+                  toBroker: brokerObjectId
+                }
+              }
+            }
+          ]
+        });
+      }
     }
 
-    // If logged-in broker, filter to only show leads where they are involved in transfers
+    // If logged-in broker, filter to show leads based on transfer shareType
     if (req.user && req.user.role === 'broker') {
       try {
-        const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
-        if (brokerDetailId) {
-          matchTransfers.$or = [
-            { 'transfers.fromBroker': brokerDetailId },
-            { 'transfers.toBroker': brokerDetailId }
-          ];
+        const brokerDetail = await findBrokerDetailWithRegionsByUserId(req.user._id);
+        if (brokerDetail) {
+          const brokerDetailId = brokerDetail._id;
+          const brokerRegions = Array.isArray(brokerDetail.region) ? brokerDetail.region : [];
+          
+          // Build transfer filter based on shareType:
+          // - individual: show if broker is the toBroker
+          // - region: show if broker's region array contains transfer.region
+          // - all: show to all brokers (any broker can see)
+          const brokerTransferConditions = [];
+          
+          // Individual transfers: broker is the toBroker
+          brokerTransferConditions.push({
+            'transfers': {
+              $elemMatch: {
+                shareType: 'individual',
+                toBroker: brokerDetailId
+              }
+            }
+          });
+          
+          // Region transfers: broker's region array contains transfer.region
+          if (brokerRegions.length > 0) {
+            const brokerRegionIds = brokerRegions.map(r => 
+              mongoose.Types.ObjectId.isValid(r) ? new mongoose.Types.ObjectId(String(r)) : r
+            ).filter(Boolean);
+            
+            if (brokerRegionIds.length > 0) {
+              brokerTransferConditions.push({
+                'transfers': {
+                  $elemMatch: {
+                    shareType: 'region',
+                    region: { $in: brokerRegionIds }
+                  }
+                }
+              });
+            }
+          }
+          
+          // All transfers: show to all brokers (any broker can see)
+          brokerTransferConditions.push({
+            'transfers': {
+              $elemMatch: {
+                shareType: 'all'
+              }
+            }
+          });
+          
+          // Also include leads where broker is fromBroker
+          brokerTransferConditions.push({
+            'transfers.fromBroker': brokerDetailId
+          });
+          
+          // Combine broker-specific conditions
+          transferConditions.push({
+            $or: brokerTransferConditions
+          });
         }
-      } catch (_) {
+      } catch (err) {
+        console.error('Error building broker filter:', err);
         // Non-fatal: continue without broker filter if lookup fails
+      }
+    }
+    
+    // Combine all transfer conditions
+    if (transferConditions.length > 0) {
+      if (transferConditions.length === 1) {
+        Object.assign(matchTransfers, transferConditions[0]);
+      } else {
+        matchTransfers.$and = transferConditions;
       }
     }
 
@@ -964,7 +1238,12 @@ export const deleteLead = async (req, res) => {
 export const transferAndNotes = async (req, res) => {
   try {
     const { id } = req.params;
-    const { toBrokers = [], fromBroker, notes } = req.body;
+    const body = req.body || {};
+    
+    const toBrokers = Array.isArray(body.toBrokers) ? body.toBrokers : [];
+    const transferObjects = Array.isArray(body.transfers) ? body.transfers : [];
+    const fromBroker = body.fromBroker;
+    const notes = body.notes;
 
     // Determine fromBroker (prefer provided; else default to logged-in broker)
     let fromId = fromBroker || null;
@@ -979,27 +1258,121 @@ export const transferAndNotes = async (req, res) => {
     const fromExists = await BrokerDetail.exists({ _id: fromId });
     if (!fromExists) return errorResponse(res, 'Invalid fromBroker: broker not found', 400);
 
-    const uniqueTo = [...new Set(toBrokers)];
-    const toExistsCount = await BrokerDetail.countDocuments({ _id: { $in: uniqueTo } });
-    if (toExistsCount !== uniqueTo.length) {
-      return errorResponse(res, 'One or more toBrokers not found', 400);
+    // Support both formats: toBrokers array (backward compatible) or transfers array (new format)
+    let transfersToAdd = [];
+    
+    if (transferObjects && transferObjects.length > 0) {
+      // New format: transfers array with shareType and region
+      const Region = (await import('../models/Region.js')).default;
+      for (const transfer of transferObjects) {
+        const shareType = transfer.shareType || 'individual';
+        
+        // Validate based on shareType
+        if (shareType === 'individual') {
+          if (!transfer.toBroker) {
+            return errorResponse(res, 'toBroker is required when shareType is "individual"', 400);
+          }
+          // Validate toBroker exists
+          const toExists = await BrokerDetail.exists({ _id: transfer.toBroker });
+          if (!toExists) {
+            return errorResponse(res, `Invalid toBroker: ${transfer.toBroker} not found`, 400);
+          }
+          transfersToAdd.push({
+            shareType: 'individual',
+            toBroker: transfer.toBroker,
+            region: null
+          });
+        } else if (shareType === 'region') {
+          if (!transfer.region) {
+            return errorResponse(res, 'region is required when shareType is "region"', 400);
+          }
+          // Validate region exists
+          const regionExists = await Region.exists({ _id: transfer.region });
+          if (!regionExists) {
+            return errorResponse(res, `Invalid region: ${transfer.region} not found`, 400);
+          }
+          transfersToAdd.push({
+            shareType: 'region',
+            toBroker: null,
+            region: transfer.region
+          });
+        } else if (shareType === 'all') {
+          // For 'all', save only shareType (no toBroker, no region)
+          transfersToAdd.push({
+            shareType: 'all',
+            toBroker: null,
+            region: null
+          });
+        }
+      }
+    } else if (toBrokers && toBrokers.length > 0) {
+      // Backward compatible format: toBrokers array (defaults to 'individual')
+      const uniqueTo = [...new Set(toBrokers)];
+      const toExistsCount = await BrokerDetail.countDocuments({ _id: { $in: uniqueTo } });
+      if (toExistsCount !== uniqueTo.length) {
+        return errorResponse(res, 'One or more toBrokers not found', 400);
+      }
+      
+      transfersToAdd = uniqueTo.map(tb => ({
+        shareType: 'individual',
+        toBroker: tb,
+        region: null
+      }));
+    } else {
+      return errorResponse(res, 'Either toBrokers or transfers array is required', 400);
     }
 
     const lead = await Lead.findById(id);
     if (!lead) return errorResponse(res, 'Lead not found', 404);
 
-    // Append transfers without duplicates (same fromBroker -> toBroker)
+    // Append transfers without duplicates
+    // For individual: check fromBroker + toBroker
+    // For region: check fromBroker + shareType + region
+    // For all: check fromBroker + shareType
     lead.transfers = Array.isArray(lead.transfers) ? lead.transfers : [];
-    const existingPairs = new Set(
-      lead.transfers
-        .filter(t => t?.fromBroker && t?.toBroker)
-        .map(t => `${String(t.fromBroker)}:${String(t.toBroker)}`)
-    );
-    uniqueTo.forEach(tb => {
-      const key = `${String(fromId)}:${String(tb)}`;
-      if (!existingPairs.has(key)) {
-        lead.transfers.push({ fromBroker: fromId, toBroker: tb });
-        existingPairs.add(key);
+    const existingTransfers = new Set();
+    
+    // Build set of existing transfer keys
+    lead.transfers.forEach(t => {
+      if (t.shareType === 'individual' && t.toBroker) {
+        existingTransfers.add(`${String(t.fromBroker)}:individual:${String(t.toBroker)}`);
+      } else if (t.shareType === 'region' && t.region) {
+        existingTransfers.add(`${String(t.fromBroker)}:region:${String(t.region)}`);
+      } else if (t.shareType === 'all') {
+        existingTransfers.add(`${String(t.fromBroker)}:all`);
+      }
+    });
+    
+    const uniqueToBrokerIds = [];
+    transfersToAdd.forEach(transfer => {
+      let key;
+      if (transfer.shareType === 'individual') {
+        key = `${String(fromId)}:individual:${String(transfer.toBroker)}`;
+      } else if (transfer.shareType === 'region') {
+        key = `${String(fromId)}:region:${String(transfer.region)}`;
+      } else {
+        key = `${String(fromId)}:all`;
+      }
+      
+      if (!existingTransfers.has(key)) {
+        const newTransfer = {
+          fromBroker: fromId,
+          shareType: transfer.shareType
+        };
+        
+        // Only add toBroker if shareType is 'individual'
+        if (transfer.shareType === 'individual' && transfer.toBroker) {
+          newTransfer.toBroker = transfer.toBroker;
+          uniqueToBrokerIds.push(transfer.toBroker);
+        }
+        
+        // Only add region if shareType is 'region'
+        if (transfer.shareType === 'region' && transfer.region) {
+          newTransfer.region = transfer.region;
+        }
+        
+        lead.transfers.push(newTransfer);
+        existingTransfers.add(key);
       }
     });
 
@@ -1013,11 +1386,57 @@ export const transferAndNotes = async (req, res) => {
     // Create notifications for transferred brokers
     try {
       const fromBroker = await BrokerDetail.findById(fromId).select('name userId').populate('userId', 'name');
-      await Promise.all(
-        uniqueTo.map(toBrokerId =>
-          createTransferNotification(toBrokerId, fromId, lead, fromBroker?.userId || req.user)
-        )
+      
+      // Notifications for individual transfers (specific brokers)
+      const individualNotifications = uniqueToBrokerIds.map(toBrokerId =>
+        createTransferNotification(toBrokerId, fromId, lead, fromBroker?.userId || req.user)
       );
+      
+      // Notifications for region transfers (all brokers in that region)
+      const regionTransferIds = transfersToAdd
+        .filter(t => t.shareType === 'region' && t.region)
+        .map(t => t.region);
+      
+      const regionNotifications = [];
+      if (regionTransferIds.length > 0) {
+        const brokersInRegions = await BrokerDetail.find({
+          region: { $in: regionTransferIds },
+          _id: { $ne: fromId } // Exclude the fromBroker
+        }).select('userId').populate('userId', '_id');
+        
+        for (const broker of brokersInRegions) {
+          if (broker.userId) {
+            const userId = broker.userId._id || broker.userId;
+            regionNotifications.push(
+              createTransferNotification(broker._id, fromId, lead, fromBroker?.userId || req.user)
+            );
+          }
+        }
+      }
+      
+      // Notifications for 'all' transfers (all brokers in the system)
+      const allTransferNotifications = [];
+      const hasAllTransfer = transfersToAdd.some(t => t.shareType === 'all');
+      if (hasAllTransfer) {
+        const allBrokers = await BrokerDetail.find({
+          _id: { $ne: fromId } // Exclude the fromBroker
+        }).select('userId').populate('userId', '_id');
+        
+        for (const broker of allBrokers) {
+          if (broker.userId) {
+            allTransferNotifications.push(
+              createTransferNotification(broker._id, fromId, lead, fromBroker?.userId || req.user)
+            );
+          }
+        }
+      }
+      
+      // Send all notifications
+      await Promise.all([
+        ...individualNotifications,
+        ...regionNotifications,
+        ...allTransferNotifications
+      ]);
     } catch (notifError) {
       // Don't fail the request if notification fails
       console.error('Error creating transfer notification:', notifError);
@@ -1160,10 +1579,11 @@ export const updateLeadVerification = async (req, res) => {
   } catch (error) {
     return serverError(res, error);
   }
-};  export const getFullLeadsByBrokerId = async (req, res) => {
+};
+
+export const getFullLeadsByBrokerId = async (req, res) => {
   try {
-    const {brokerId} = req.params;
-    console.log('brokerId',brokerId);
+    const { brokerId } = req.params;
     const leads = await Lead.find({ createdBy: brokerId });
     return successResponse(res, 'Leads retrieved successfully', { leads });
   } catch (error) {

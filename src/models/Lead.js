@@ -27,7 +27,13 @@ const leadSchema = new mongoose.Schema(
     transfers: [
       {
         fromBroker: { type: mongoose.Schema.Types.ObjectId, ref: 'BrokerDetail', required: true },
-        toBroker: { type: mongoose.Schema.Types.ObjectId, ref: 'BrokerDetail', required: true },
+        toBroker: { type: mongoose.Schema.Types.ObjectId, ref: 'BrokerDetail' }, // Optional: only required for 'individual' shareType
+        shareType: {
+          type: String,
+          enum: ['individual', 'region', 'all'],
+          default: 'individual'
+        },
+        region: { type: mongoose.Schema.Types.ObjectId, ref: 'Region' }, // Optional: only required for 'region' shareType
       },
     ],
 

@@ -28,6 +28,8 @@ export const createLeadSchema = Joi.object({
   transfers: Joi.array().items(Joi.object({
     fromBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
     toBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+    shareType: Joi.string().valid('individual', 'region', 'all').optional(),
+    region: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional().allow(null),
   })).optional(),
   notes: Joi.string().optional(),
 }).unknown(true);
@@ -58,6 +60,8 @@ export const updateLeadSchema = Joi.object({
   transfers: Joi.array().items(Joi.object({
     fromBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
     toBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+    shareType: Joi.string().valid('individual', 'region', 'all').optional(),
+    region: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional().allow(null),
   })).optional(),
   notes: Joi.string().optional(),
 }).unknown(true);
@@ -122,8 +126,21 @@ export const updateNotesSchema = Joi.object({
 });
 
 export const transferAndNotesSchema = Joi.object({
-  toBrokers: Joi.array().items(Joi.string().pattern(/^[0-9a-fA-F]{24}$/)).min(1).required(),
+  toBrokers: Joi.array().items(Joi.string().pattern(/^[0-9a-fA-F]{24}$/)).min(1).optional(),
+  transfers: Joi.array().items(Joi.object({
+    shareType: Joi.string().valid('individual', 'region', 'all').required(),
+    toBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).when('shareType', {
+      is: 'individual',
+      then: Joi.required(),
+      otherwise: Joi.optional().allow(null)
+    }),
+    region: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).when('shareType', {
+      is: 'region',
+      then: Joi.required(),
+      otherwise: Joi.optional().allow(null)
+    }),
+  }).unknown(true)).min(1).optional(),
   fromBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
   notes: Joi.string().allow('', null).optional()
-});
+}).unknown(true).or('toBrokers', 'transfers');
 
