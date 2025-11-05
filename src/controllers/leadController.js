@@ -97,8 +97,14 @@ const applyBrokerDefaults = (payload, brokerDetailId) => {
 
 const validateBrokerRefsExist = async (payload) => {
   if (payload.createdBy) {
-    const exists = await BrokerDetail.exists({ _id: payload.createdBy });
-    if (!exists) return 'Invalid createdBy: broker not found';
+    // Check if createdBy exists in BrokerDetail
+    const brokerExists = await BrokerDetail.exists({ _id: payload.createdBy });
+    // Check if createdBy exists in User table with role='admin'
+    const adminExists = await User.exists({ _id: payload.createdBy, role: 'admin' });
+    
+    if (!brokerExists && !adminExists) {
+      return 'Invalid createdBy: broker or admin not found';
+    }
   }
 
   if (Array.isArray(payload.transfers)) {
@@ -187,8 +193,9 @@ export const createLead = async (req, res) => {
         )
       );
       
-      // Notify the creator broker if they're not already notified (not an admin and not the same user)
+      // Notify the creator (broker or admin) if they're not already notified
       if (payload.createdBy) {
+        // Check if createdBy is a broker
         const broker = await BrokerDetail.findById(payload.createdBy).select('userId');
         if (broker?.userId) {
           const brokerUserId = broker.userId._id || broker.userId;
@@ -198,6 +205,18 @@ export const createLead = async (req, res) => {
           // Only notify if: not the same user AND not already notified as admin
           if (brokerUserIdStr !== reqUserIdStr && !adminIds.includes(brokerUserIdStr)) {
             await createLeadNotification(brokerUserId, 'created', lead, req.user);
+          }
+        } else {
+          // Check if createdBy is an admin user
+          const adminUser = await User.findById(payload.createdBy).select('_id role');
+          if (adminUser && adminUser.role === 'admin') {
+            const adminUserIdStr = adminUser._id.toString();
+            const reqUserIdStr = req.user?._id?.toString();
+            
+            // Only notify if: not the same user AND not already notified as admin
+            if (adminUserIdStr !== reqUserIdStr && !adminIds.includes(adminUserIdStr)) {
+              await createLeadNotification(adminUser._id, 'created', lead, req.user);
+            }
           }
         }
       }
@@ -1140,15 +1159,30 @@ export const updateLead = async (req, res) => {
     // Create notification if status changed
     if (payload.status && payload.status !== existingLead.status) {
       try {
-        // Notify the lead creator
-        if (updatedLead.createdBy?.userId) {
-          const creatorUserId = updatedLead.createdBy.userId._id || updatedLead.createdBy.userId;
-          await createLeadNotification(
-            creatorUserId,
-            'statusChanged',
-            updatedLead,
-            req.user
-          );
+        // Notify the lead creator (broker or admin)
+        if (updatedLead.createdBy) {
+          let creatorUserId = null;
+          
+          // Check if createdBy is a broker (populated)
+          if (updatedLead.createdBy?.userId) {
+            creatorUserId = updatedLead.createdBy.userId._id || updatedLead.createdBy.userId;
+          } else {
+            // Check if createdBy is an admin user ID (not populated as BrokerDetail)
+            const createdById = updatedLead.createdBy._id || updatedLead.createdBy;
+            const adminUser = await User.findById(createdById).select('_id role');
+            if (adminUser && adminUser.role === 'admin') {
+              creatorUserId = adminUser._id;
+            }
+          }
+          
+          if (creatorUserId) {
+            await createLeadNotification(
+              creatorUserId,
+              'statusChanged',
+              updatedLead,
+              req.user
+            );
+          }
         }
         // Notify brokers involved in transfers
         if (Array.isArray(updatedLead.transfers) && updatedLead.transfers.length > 0) {
@@ -1208,8 +1242,9 @@ export const deleteLead = async (req, res) => {
         )
       );
       
-      // Notify the lead creator (only if not already notified as admin)
+      // Notify the lead creator (broker or admin) if not already notified
       if (lead.createdBy) {
+        // Check if createdBy is a broker
         const broker = await BrokerDetail.findById(lead.createdBy).select('userId');
         if (broker?.userId) {
           const brokerUserId = broker.userId._id || broker.userId;
@@ -1219,6 +1254,18 @@ export const deleteLead = async (req, res) => {
           // Only notify if: not the same user AND not already notified as admin
           if (brokerUserIdStr !== reqUserIdStr && !adminIds.includes(brokerUserIdStr)) {
             await createLeadNotification(brokerUserId, 'deleted', lead, req.user);
+          }
+        } else {
+          // Check if createdBy is an admin user
+          const adminUser = await User.findById(lead.createdBy).select('_id role');
+          if (adminUser && adminUser.role === 'admin') {
+            const adminUserIdStr = adminUser._id.toString();
+            const reqUserIdStr = req.user?._id?.toString();
+            
+            // Only notify if: not the same user AND not already notified as admin
+            if (adminUserIdStr !== reqUserIdStr && !adminIds.includes(adminUserIdStr)) {
+              await createLeadNotification(adminUser._id, 'deleted', lead, req.user);
+            }
           }
         }
       }
