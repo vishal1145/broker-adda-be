@@ -8,6 +8,7 @@ import propertyRoutes from './propertyRoutes.js';
 import chatRoutes from './chat.js';
 import notificationRoutes from './notifications.js';
 import savedPropertyRoutes from './savedProperties.js';
+import contactRoutes from './contact.js';
 const router = express.Router();
 
 // API routes
@@ -20,6 +21,7 @@ router.use('/properties', propertyRoutes);
 router.use('/chats', chatRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/saved-properties', savedPropertyRoutes);
+router.use('/contact', contactRoutes);
 
 export default router;
 
