@@ -7,6 +7,8 @@ import { successResponse, errorResponse, serverError } from '../utils/response.j
 import { getFileUrl } from '../middleware/upload.js';
 import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../utils/brokerCount.js';
 import { createNotification } from '../utils/notifications.js';
+import Subscription from '../models/Subscription.js';
+import mongoose from 'mongoose';
 
 // Get all brokers (with pagination and filtering) - All roles allowed
 export const getAllBrokers = async (req, res) => {
@@ -196,9 +198,9 @@ export const getAllBrokers = async (req, res) => {
     }
 
     // Convert file paths to URLs and attach lead stats
-    const brokersWithUrls = brokers.map(broker => {
+    const brokersWithUrlsPromises = brokers.map(async broker => {
       const brokerObj = broker.toObject();
-      
+     
       // Convert kycDocs file paths to URLs
       if (brokerObj.kycDocs) {
         if (brokerObj.kycDocs.aadhar) {
@@ -232,9 +234,14 @@ export const getAllBrokers = async (req, res) => {
       brokerObj.leadCount = brokerIdToLeadCount.get(key) || 0;
       brokerObj.propertyCount = brokerIdToPropertyCount.get(key) || 0;
       brokerObj.properties = brokerIdToProperties.get(key) || [];
-      
+
+      const brokerSubscription = await Subscription.findOne({ user: new mongoose.Types.ObjectId(brokerObj.userId), endDate: { $gt: new Date() } });
+      brokerObj.subscription = brokerSubscription || null;
+
       return brokerObj;
     });
+
+    const brokersWithUrls = await Promise.all(brokersWithUrlsPromises);
 
     return successResponse(res, 'Brokers retrieved successfully', {
       brokers: brokersWithUrls,
@@ -267,6 +274,8 @@ export const getBrokerById = async (req, res) => {
     const broker = await BrokerDetail.findOne({ userId: id })
       .populate('region', 'name description city state centerLocation radius')
       .populate('userId', 'name email phone status');
+
+    const brokerSubscription = await Subscription.findOne({ user: new mongoose.Types.ObjectId(id), endDate: { $gt: new Date() } });
 
     if (!broker) {
       return errorResponse(res, 'Broker not found', 404);
@@ -322,6 +331,7 @@ export const getBrokerById = async (req, res) => {
       count: propertyCount,
       items: properties
     };
+    brokerObj.subscription = brokerSubscription ? brokerSubscription.toObject() : null;
 
     return successResponse(res, 'Broker details retrieved successfully', { broker: brokerObj });
 
