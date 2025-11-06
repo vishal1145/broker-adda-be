@@ -10,6 +10,8 @@ import notificationRoutes from './notifications.js';
 import savedPropertyRoutes from './savedProperties.js';
 import contactRoutes from './contact.js';
 import paymentRoutes from './payments.js';
+import brokerRatingRoutes from './brokerRatings.js';
+import propertyRatingRoutes from './propertyRatings.js';
 const router = express.Router();
 
 // API routes
@@ -24,6 +26,8 @@ router.use('/notifications', notificationRoutes);
 router.use('/saved-properties', savedPropertyRoutes);
 router.use('/contact', contactRoutes);
 router.use('/payments', paymentRoutes);
+router.use('/broker-ratings', brokerRatingRoutes);
+router.use('/property-ratings', propertyRatingRoutes);
 
 export default router;
 
