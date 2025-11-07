@@ -95,29 +95,11 @@ export const createProperty = async (req, res) => {
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
-    // Create notifications for property creation
+    // Create notification for property creation
+    // Use userId from token (req.user._id)
     try {
-      // Notify admin users about new property
-      const admins = await User.find({ role: 'admin', status: 'active' }).select('_id');
-      const adminIds = admins.map(admin => admin._id.toString());
-      
-      await Promise.all(
-        admins.map(admin =>
-          createPropertyNotification(admin._id, 'created', created, req.user)
-        )
-      );
-
-      // Notify the broker who created the property (only if not already notified as admin)
-      const broker = await BrokerDetail.findById(brokerId).select('userId');
-      if (broker?.userId) {
-        const brokerUserId = broker.userId._id || broker.userId;
-        const brokerUserIdStr = brokerUserId.toString();
-        const reqUserIdStr = req.user?._id?.toString();
-        
-        // Only notify if: not the same user AND not already notified as admin
-        if (brokerUserIdStr !== reqUserIdStr && !adminIds.includes(brokerUserIdStr)) {
-          await createPropertyNotification(brokerUserId, 'created', created, req.user);
-        }
+      if (req.user?._id) {
+        await createPropertyNotification(req.user._id, 'created', created, req.user);
       }
     } catch (notifError) {
       console.error('Error creating property notification:', notifError);
@@ -464,10 +446,10 @@ export const approveProperty = async (req, res) => {
       .lean();
 
     // Create notification for property approval
+    // Use userId from token (req.user._id)
     try {
-      const broker = await BrokerDetail.findById(populated.broker._id || populated.broker).select('userId');
-      if (broker?.userId) {
-        await createPropertyNotification(broker.userId, 'approved', populated, req.user);
+      if (req.user?._id) {
+        await createPropertyNotification(req.user._id, 'approved', populated, req.user);
       }
     } catch (notifError) {
       console.error('Error creating approval notification:', notifError);
@@ -505,10 +487,10 @@ export const rejectProperty = async (req, res) => {
       .lean();
 
     // Create notification for property rejection
+    // Use userId from token (req.user._id)
     try {
-      const broker = await BrokerDetail.findById(populated.broker._id || populated.broker).select('userId');
-      if (broker?.userId) {
-        await createPropertyNotification(broker.userId, 'rejected', populated, req.user);
+      if (req.user?._id) {
+        await createPropertyNotification(req.user._id, 'rejected', populated, req.user);
       }
     } catch (notifError) {
       console.error('Error creating rejection notification:', notifError);
@@ -638,11 +620,11 @@ export const updateProperty = async (req, res) => {
       .lean();
 
     // Create notification if status changed
+    // Use userId from token (req.user._id)
     if (updateData.status && updateData.status !== existingProperty.status) {
       try {
-        const broker = await BrokerDetail.findById(updatedProperty.broker._id || updatedProperty.broker).select('userId');
-        if (broker?.userId) {
-          await createPropertyNotification(broker.userId, 'updated', updatedProperty, req.user);
+        if (req.user?._id) {
+          await createPropertyNotification(req.user._id, 'updated', updatedProperty, req.user);
         }
       } catch (notifError) {
         console.error('Error creating update notification:', notifError);
@@ -693,10 +675,10 @@ export const deleteProperty = async (req, res) => {
     }
 
     // Create notification before deleting
+    // Use userId from token (req.user._id)
     try {
-      const broker = await BrokerDetail.findById(property.broker).select('userId');
-      if (broker?.userId) {
-        await createPropertyNotification(broker.userId, 'deleted', property, req.user);
+      if (req.user?._id) {
+        await createPropertyNotification(req.user._id, 'deleted', property, req.user);
       }
     } catch (notifError) {
       console.error('Error creating deletion notification:', notifError);

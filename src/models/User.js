@@ -56,6 +56,14 @@ const userSchema = new mongoose.Schema({
   tokenExpiresAt: {
     type: Date,
     default: null
+  },
+  pushNotificationsEnabled: {
+    type: Boolean,
+    default: true
+  },
+  notificationsDisabledAt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

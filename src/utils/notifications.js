@@ -1,11 +1,44 @@
 import Notification from '../models/Notification.js';
 import BrokerDetail from '../models/BrokerDetail.js';
+import Property from '../models/Property.js';
 import User from '../models/User.js';
+import Region from '../models/Region.js';
+
+/**
+ * Helper function to get userId from brokerId or propertyId
+ * Always ensures we use userId, not brokerId or propertyId
+ */
+export const getUserIdFromBrokerOrProperty = async (brokerId = null, propertyId = null) => {
+  try {
+    if (brokerId) {
+      const broker = await BrokerDetail.findById(brokerId).select('userId');
+      if (broker?.userId) {
+        return broker.userId._id || broker.userId;
+      }
+    }
+    
+    if (propertyId) {
+      const property = await Property.findById(propertyId).select('broker');
+      if (property?.broker) {
+        const broker = await BrokerDetail.findById(property.broker).select('userId');
+        if (broker?.userId) {
+          return broker.userId._id || broker.userId;
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting userId from broker/property:', error);
+    return null;
+  }
+};
 
 /**
  * Helper function to create notifications
+ * IMPORTANT: Always use userId, never brokerId or propertyId directly
  * @param {Object} options - Notification options
- * @param {String|ObjectId} options.userId - User ID who will receive the notification
+ * @param {String|ObjectId} options.userId - User ID who will receive the notification (REQUIRED - always use userId)
  * @param {String} options.type - Notification type: 'lead', 'property', 'message', 'system', 'transfer', 'approval', 'other'
  * @param {String} options.title - Notification title
  * @param {String} options.message - Notification message
@@ -26,6 +59,12 @@ export const createNotification = async ({
   metadata = {}
 }) => {
   try {
+    // Ensure userId is provided (never accept brokerId or propertyId directly)
+    if (!userId) {
+      console.error('Error creating notification: userId is required. Never use brokerId or propertyId directly.');
+      return null;
+    }
+
     const notification = new Notification({
       userId,
       type,
@@ -49,6 +88,7 @@ export const createNotification = async ({
 /**
  * Create notification for a broker by BrokerDetail ID
  * Finds the broker's userId and creates notification
+ * IMPORTANT: Always extracts userId from broker, never uses brokerId directly
  */
 export const createNotificationForBroker = async (brokerDetailId, notificationData) => {
   try {
@@ -58,9 +98,18 @@ export const createNotificationForBroker = async (brokerDetailId, notificationDa
       return null;
     }
 
+    // Ensure we extract the actual userId, not brokerId
+    // Handle both populated and non-populated cases
+    const userId = broker.userId._id || broker.userId;
+    
+    if (!userId) {
+      console.error(`BrokerDetail ${brokerDetailId} has invalid userId`);
+      return null;
+    }
+
     return await createNotification({
       ...notificationData,
-      userId: broker.userId
+      userId: userId
     });
   } catch (error) {
     console.error('Error creating notification for broker:', error);
@@ -70,6 +119,7 @@ export const createNotificationForBroker = async (brokerDetailId, notificationDa
 
 /**
  * Create notifications for multiple brokers
+ * IMPORTANT: Always extracts userId from each broker, never uses brokerId directly
  */
 export const createNotificationsForBrokers = async (brokerDetailIds, notificationData) => {
   try {
@@ -80,12 +130,21 @@ export const createNotificationsForBrokers = async (brokerDetailIds, notificatio
     const notifications = await Promise.all(
       brokers
         .filter(b => b.userId)
-        .map(broker =>
-          createNotification({
+        .map(broker => {
+          // Ensure we extract the actual userId, not brokerId
+          // Handle both populated and non-populated cases
+          const userId = broker.userId._id || broker.userId;
+          
+          if (!userId) {
+            console.warn(`BrokerDetail ${broker._id} has invalid userId`);
+            return null;
+          }
+
+          return createNotification({
             ...notificationData,
-            userId: broker.userId
-          })
-        )
+            userId: userId
+          });
+        })
     );
 
     return notifications.filter(n => n !== null);
@@ -225,25 +284,55 @@ export const createPropertyNotification = async (userId, action, property, actor
 };
 
 /**
- * Create notification for transfer events
+ * Create a single notification for region transfer
+ * Creates ONE notification per region ID (similar to lead creation)
  */
-export const createTransferNotification = async (toBrokerId, fromBrokerId, lead, actor = null) => {
+export const createRegionTransferNotification = async (regionId, fromBrokerId, lead, fromBroker = null) => {
   try {
-    // Get broker details for actor name
-    let actorName = null;
-    if (actor) {
-      actorName = actor.name;
-    } else if (fromBrokerId) {
-      const fromBroker = await BrokerDetail.findById(fromBrokerId)
-        .populate('userId', 'name')
-        .select('name userId');
-      actorName = fromBroker?.name || fromBroker?.userId?.name || 'Unknown Broker';
+    if (!regionId) {
+      console.error('createRegionTransferNotification: regionId is required');
+      return null;
     }
 
-    return await createNotificationForBroker(toBrokerId, {
+    if (!fromBrokerId) {
+      console.error('createRegionTransferNotification: fromBrokerId is required');
+      return null;
+    }
+
+    // Get region details to include region name
+    const region = await Region.findById(regionId).select('name');
+    const regionName = region?.name || 'Unknown Region';
+
+    // Get sender broker details
+    let senderBroker = fromBroker;
+    let senderUserId = null;
+    let senderName = 'Unknown Broker';
+
+    if (fromBroker) {
+      senderUserId = fromBroker.userId?._id || fromBroker.userId;
+      senderName = fromBroker.name || 'Unknown Broker';
+    } else {
+      senderBroker = await BrokerDetail.findById(fromBrokerId).select('userId name').populate('userId', 'name');
+      if (senderBroker) {
+        senderUserId = senderBroker.userId?._id || senderBroker.userId;
+        senderName = senderBroker.name || 'Unknown Broker';
+      }
+    }
+
+    if (!senderUserId) {
+      console.error(`createRegionTransferNotification: Could not extract userId from broker ${fromBrokerId}`);
+      return null;
+    }
+
+    const customerName = lead.customerName || 'customer';
+    
+    console.log(`Creating single region transfer notification: regionId=${regionId}, regionName=${regionName}, senderUserId=${senderUserId}, leadId=${lead._id || lead}`);
+
+    const notification = await createNotification({
+      userId: senderUserId, // Notification goes to SENDER broker (who transferred to region)
       type: 'transfer',
-      title: 'Lead Transferred to You',
-      message: `A lead for ${lead.customerName || 'customer'} has been transferred to you${actorName ? ` by ${actorName}` : ''}`,
+      title: `Lead Shared with ${regionName} Region`,
+      message: `A lead for ${customerName} has been shared with brokers in ${regionName} region`,
       priority: 'high',
       relatedEntity: {
         entityType: 'Lead',
@@ -251,8 +340,173 @@ export const createTransferNotification = async (toBrokerId, fromBrokerId, lead,
       },
       activity: {
         action: 'transferred',
-        actorId: actor?._id || actor,
-        actorName
+        actorId: senderUserId,
+        actorName: senderName
+      },
+      metadata: {
+        leadId: lead._id || lead,
+        fromBrokerId,
+        regionId,
+        regionName,
+        shareType: 'region',
+        customerName: lead.customerName,
+        customerPhone: lead.customerPhone
+      }
+    });
+
+    if (notification) {
+      console.log(`Region transfer notification created successfully: notificationId=${notification._id}, userId=${senderUserId}, regionName=${regionName}`);
+    } else {
+      console.error(`Failed to create region transfer notification for region ${regionId}`);
+    }
+
+    return notification;
+  } catch (error) {
+    console.error('Error creating region transfer notification:', error);
+    console.error('Error stack:', error.stack);
+    return null;
+  }
+};
+
+/**
+ * Create a single notification for "all brokers" transfer
+ * Creates ONE notification for the sender (similar to lead creation)
+ */
+export const createAllBrokersTransferNotification = async (fromBrokerId, lead, fromBroker = null) => {
+  try {
+    if (!fromBrokerId) {
+      console.error('createAllBrokersTransferNotification: fromBrokerId is required');
+      return null;
+    }
+
+    // Get sender broker details
+    let senderBroker = fromBroker;
+    let senderUserId = null;
+    let senderName = 'Unknown Broker';
+
+    if (fromBroker) {
+      senderUserId = fromBroker.userId?._id || fromBroker.userId;
+      senderName = fromBroker.name || 'Unknown Broker';
+    } else {
+      senderBroker = await BrokerDetail.findById(fromBrokerId).select('userId name').populate('userId', 'name');
+      if (senderBroker) {
+        senderUserId = senderBroker.userId?._id || senderBroker.userId;
+        senderName = senderBroker.name || 'Unknown Broker';
+      }
+    }
+
+    if (!senderUserId) {
+      console.error(`createAllBrokersTransferNotification: Could not extract userId from broker ${fromBrokerId}`);
+      return null;
+    }
+
+    const customerName = lead.customerName || 'customer';
+    
+    console.log(`Creating single "all brokers" transfer notification: senderUserId=${senderUserId}, senderName=${senderName}, leadId=${lead._id || lead}`);
+
+    const notification = await createNotification({
+      userId: senderUserId, // Notification goes to SENDER broker (who transferred to all)
+      type: 'transfer',
+      title: 'Lead Shared with All Brokers',
+      message: `A lead for ${customerName} has been shared with all brokers`,
+      priority: 'high',
+      relatedEntity: {
+        entityType: 'Lead',
+        entityId: lead._id || lead
+      },
+      activity: {
+        action: 'transferred',
+        actorId: senderUserId,
+        actorName: senderName
+      },
+      metadata: {
+        leadId: lead._id || lead,
+        fromBrokerId,
+        shareType: 'all',
+        customerName: lead.customerName,
+        customerPhone: lead.customerPhone
+      }
+    });
+
+    if (notification) {
+      console.log(`"All brokers" transfer notification created successfully: notificationId=${notification._id}, userId=${senderUserId}`);
+    } else {
+      console.error(`Failed to create "all brokers" transfer notification for broker ${fromBrokerId}`);
+    }
+
+    return notification;
+  } catch (error) {
+    console.error('Error creating "all brokers" transfer notification:', error);
+    console.error('Error stack:', error.stack);
+    return null;
+  }
+};
+
+/**
+ * Create notification for transfer events (individual or region)
+ */
+export const createTransferNotification = async (toBrokerId, fromBrokerId, lead, fromBroker = null) => {
+  try {
+    if (!toBrokerId) {
+      console.error('createTransferNotification: toBrokerId is required');
+      return null;
+    }
+
+    // Get the RECIPIENT broker's userId (the broker receiving the transfer)
+    const toBroker = await BrokerDetail.findById(toBrokerId).select('userId name');
+    if (!toBroker) {
+      console.warn(`createTransferNotification: BrokerDetail ${toBrokerId} not found`);
+      return null;
+    }
+    
+    if (!toBroker.userId) {
+      console.warn(`createTransferNotification: BrokerDetail ${toBrokerId} has no userId`);
+      return null;
+    }
+
+    // Extract recipient userId (the broker who will receive the notification)
+    const recipientUserId = toBroker.userId._id || toBroker.userId;
+    
+    if (!recipientUserId) {
+      console.error(`createTransferNotification: Could not extract userId from broker ${toBrokerId}`);
+      return null;
+    }
+    
+    // Get sender broker name for the message
+    let senderName = 'Unknown Broker';
+    let senderUserId = null;
+    
+    if (fromBroker) {
+      // Use the provided fromBroker object
+      senderName = fromBroker.name || 'Unknown Broker';
+      senderUserId = fromBroker.userId?._id || fromBroker.userId;
+    } else if (fromBrokerId) {
+      // Fetch fromBroker if not provided
+      const fetchedFromBroker = await BrokerDetail.findById(fromBrokerId)
+        .select('name userId')
+        .populate('userId', 'name');
+      if (fetchedFromBroker) {
+        senderName = fetchedFromBroker.name || 'Unknown Broker';
+        senderUserId = fetchedFromBroker.userId?._id || fetchedFromBroker.userId;
+      }
+    }
+
+    console.log(`Creating transfer notification: recipientUserId=${recipientUserId}, senderName=${senderName}, leadId=${lead._id || lead}`);
+
+    const notification = await createNotification({
+      userId: recipientUserId, // Notification goes to RECIPIENT broker (toBroker's userId)
+      type: 'transfer',
+      title: 'Lead Transferred to You',
+      message: `A lead for ${lead.customerName || 'customer'} has been transferred to you by ${senderName}`,
+      priority: 'high',
+      relatedEntity: {
+        entityType: 'Lead',
+        entityId: lead._id || lead
+      },
+      activity: {
+        action: 'transferred',
+        actorId: senderUserId, // Who transferred it (fromBroker's userId)
+        actorName: senderName
       },
       metadata: {
         leadId: lead._id || lead,
@@ -262,8 +516,17 @@ export const createTransferNotification = async (toBrokerId, fromBrokerId, lead,
         customerPhone: lead.customerPhone
       }
     });
+
+    if (notification) {
+      console.log(`Transfer notification created successfully: notificationId=${notification._id}, userId=${recipientUserId}`);
+    } else {
+      console.error(`Failed to create transfer notification for broker ${toBrokerId}`);
+    }
+
+    return notification;
   } catch (error) {
     console.error('Error creating transfer notification:', error);
+    console.error('Error stack:', error.stack);
     return null;
   }
 };

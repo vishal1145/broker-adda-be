@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { getFileUrl } from '../middleware/upload.js';
 import BrokerDetail from '../models/BrokerDetail.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
-import { createLeadNotification, createTransferNotification } from '../utils/notifications.js';
+import { createLeadNotification, createTransferNotification, createAllBrokersTransferNotification, createRegionTransferNotification } from '../utils/notifications.js';
 import User from '../models/User.js';
 
 // Helpers
@@ -182,43 +182,10 @@ export const createLead = async (req, res) => {
     await lead.save();
     
     // Create notification for lead creation
+    // Use userId from token (req.user._id)
     try {
-      const admins = await User.find({ role: 'admin', status: 'active' }).select('_id');
-      const adminIds = admins.map(admin => admin._id.toString());
-      
-      // Notify admin users about new lead
-      await Promise.all(
-        admins.map(admin =>
-          createLeadNotification(admin._id, 'created', lead, req.user)
-        )
-      );
-      
-      // Notify the creator (broker or admin) if they're not already notified
-      if (payload.createdBy) {
-        // Check if createdBy is a broker
-        const broker = await BrokerDetail.findById(payload.createdBy).select('userId');
-        if (broker?.userId) {
-          const brokerUserId = broker.userId._id || broker.userId;
-          const brokerUserIdStr = brokerUserId.toString();
-          const reqUserIdStr = req.user?._id?.toString();
-          
-          // Only notify if: not the same user AND not already notified as admin
-          if (brokerUserIdStr !== reqUserIdStr && !adminIds.includes(brokerUserIdStr)) {
-            await createLeadNotification(brokerUserId, 'created', lead, req.user);
-          }
-        } else {
-          // Check if createdBy is an admin user
-          const adminUser = await User.findById(payload.createdBy).select('_id role');
-          if (adminUser && adminUser.role === 'admin') {
-            const adminUserIdStr = adminUser._id.toString();
-            const reqUserIdStr = req.user?._id?.toString();
-            
-            // Only notify if: not the same user AND not already notified as admin
-            if (adminUserIdStr !== reqUserIdStr && !adminIds.includes(adminUserIdStr)) {
-              await createLeadNotification(adminUser._id, 'created', lead, req.user);
-            }
-          }
-        }
+      if (req.user?._id) {
+        await createLeadNotification(req.user._id, 'created', lead, req.user);
       }
     } catch (notifError) {
       // Don't fail the request if notification fails
@@ -1157,52 +1124,11 @@ export const updateLead = async (req, res) => {
     }
 
     // Create notification if status changed
+    // Use userId from token (req.user._id)
     if (payload.status && payload.status !== existingLead.status) {
       try {
-        // Notify the lead creator (broker or admin)
-        if (updatedLead.createdBy) {
-          let creatorUserId = null;
-          
-          // Check if createdBy is a broker (populated)
-          if (updatedLead.createdBy?.userId) {
-            creatorUserId = updatedLead.createdBy.userId._id || updatedLead.createdBy.userId;
-          } else {
-            // Check if createdBy is an admin user ID (not populated as BrokerDetail)
-            const createdById = updatedLead.createdBy._id || updatedLead.createdBy;
-            const adminUser = await User.findById(createdById).select('_id role');
-            if (adminUser && adminUser.role === 'admin') {
-              creatorUserId = adminUser._id;
-            }
-          }
-          
-          if (creatorUserId) {
-            await createLeadNotification(
-              creatorUserId,
-              'statusChanged',
-              updatedLead,
-              req.user
-            );
-          }
-        }
-        // Notify brokers involved in transfers
-        if (Array.isArray(updatedLead.transfers) && updatedLead.transfers.length > 0) {
-          const brokerIds = [
-            ...new Set(
-              updatedLead.transfers
-                .map(t => [t.fromBroker?._id || t.fromBroker, t.toBroker?._id || t.toBroker])
-                .flat()
-                .filter(Boolean)
-            )
-          ];
-          await Promise.all(
-            brokerIds.map(async (brokerId) => {
-              const broker = await BrokerDetail.findById(brokerId).select('userId');
-              if (broker?.userId) {
-                const brokerUserId = broker.userId._id || broker.userId;
-                await createLeadNotification(brokerUserId, 'statusChanged', updatedLead, req.user);
-              }
-            })
-          );
+        if (req.user?._id) {
+          await createLeadNotification(req.user._id, 'statusChanged', updatedLead, req.user);
         }
       } catch (notifError) {
         console.error('Error creating status change notification:', notifError);
@@ -1231,43 +1157,10 @@ export const deleteLead = async (req, res) => {
     }
 
     // Create notification before deleting
+    // Use userId from token (req.user._id)
     try {
-      // Notify admin users about lead deletion
-      const admins = await User.find({ role: 'admin', status: 'active' }).select('_id');
-      const adminIds = admins.map(admin => admin._id.toString());
-      
-      await Promise.all(
-        admins.map(admin =>
-          createLeadNotification(admin._id, 'deleted', lead, req.user)
-        )
-      );
-      
-      // Notify the lead creator (broker or admin) if not already notified
-      if (lead.createdBy) {
-        // Check if createdBy is a broker
-        const broker = await BrokerDetail.findById(lead.createdBy).select('userId');
-        if (broker?.userId) {
-          const brokerUserId = broker.userId._id || broker.userId;
-          const brokerUserIdStr = brokerUserId.toString();
-          const reqUserIdStr = req.user?._id?.toString();
-          
-          // Only notify if: not the same user AND not already notified as admin
-          if (brokerUserIdStr !== reqUserIdStr && !adminIds.includes(brokerUserIdStr)) {
-            await createLeadNotification(brokerUserId, 'deleted', lead, req.user);
-          }
-        } else {
-          // Check if createdBy is an admin user
-          const adminUser = await User.findById(lead.createdBy).select('_id role');
-          if (adminUser && adminUser.role === 'admin') {
-            const adminUserIdStr = adminUser._id.toString();
-            const reqUserIdStr = req.user?._id?.toString();
-            
-            // Only notify if: not the same user AND not already notified as admin
-            if (adminUserIdStr !== reqUserIdStr && !adminIds.includes(adminUserIdStr)) {
-              await createLeadNotification(adminUser._id, 'deleted', lead, req.user);
-            }
-          }
-        }
+      if (req.user?._id) {
+        await createLeadNotification(req.user._id, 'deleted', lead, req.user);
       }
     } catch (notifError) {
       console.error('Error creating lead deletion notification:', notifError);
@@ -1432,61 +1325,85 @@ export const transferAndNotes = async (req, res) => {
     
     // Create notifications for transferred brokers
     try {
+      // Get sender broker details for the notification message
       const fromBroker = await BrokerDetail.findById(fromId).select('name userId').populate('userId', 'name');
+      if (!fromBroker) {
+        console.error('FromBroker not found for transfer notification');
+        throw new Error('FromBroker not found');
+      }
       
-      // Notifications for individual transfers (specific brokers)
-      const individualNotifications = uniqueToBrokerIds.map(toBrokerId =>
-        createTransferNotification(toBrokerId, fromId, lead, fromBroker?.userId || req.user)
-      );
+      const senderName = fromBroker.name || 'Unknown Broker';
       
-      // Notifications for region transfers (all brokers in that region)
-      const regionTransferIds = transfersToAdd
-        .filter(t => t.shareType === 'region' && t.region)
-        .map(t => t.region);
+      // Collect all unique recipient broker IDs to avoid duplicates
+      const recipientBrokerIds = new Set();
       
-      const regionNotifications = [];
-      if (regionTransferIds.length > 0) {
-        const brokersInRegions = await BrokerDetail.find({
-          region: { $in: regionTransferIds },
-          _id: { $ne: fromId } // Exclude the fromBroker
-        }).select('userId').populate('userId', '_id');
-        
-        for (const broker of brokersInRegions) {
-          if (broker.userId) {
-            const userId = broker.userId._id || broker.userId;
-            regionNotifications.push(
-              createTransferNotification(broker._id, fromId, lead, fromBroker?.userId || req.user)
-            );
+      // Add individual transfer broker IDs
+      if (uniqueToBrokerIds && uniqueToBrokerIds.length > 0) {
+        uniqueToBrokerIds.forEach(brokerId => {
+          if (brokerId) {
+            recipientBrokerIds.add(String(brokerId));
           }
+        });
+      }
+      
+      // Handle region transfers - create ONE notification per unique region ID
+      const regionTransfers = transfersToAdd.filter(t => t.shareType === 'region' && t.region);
+      if (regionTransfers.length > 0) {
+        // Get unique region IDs
+        const uniqueRegionIds = [...new Set(regionTransfers.map(t => String(t.region)).filter(Boolean))];
+        
+        if (uniqueRegionIds.length > 0) {
+          console.log(`Creating ${uniqueRegionIds.length} region transfer notifications for regions:`, uniqueRegionIds);
+          
+          // Create one notification per unique region
+          const regionNotifications = await Promise.all(
+            uniqueRegionIds.map(regionId =>
+              createRegionTransferNotification(regionId, fromId, lead, fromBroker)
+            )
+          );
+          
+          const successCount = regionNotifications.filter(r => r !== null).length;
+          console.log(`Successfully created ${successCount} out of ${uniqueRegionIds.length} region transfer notifications`);
+          
+          // Don't create individual broker notifications for region transfers
+          // We already created one notification per region
         }
       }
       
-      // Notifications for 'all' transfers (all brokers in the system)
-      const allTransferNotifications = [];
+      // Handle "all brokers" transfer - create ONE notification (like lead creation)
       const hasAllTransfer = transfersToAdd.some(t => t.shareType === 'all');
       if (hasAllTransfer) {
-        const allBrokers = await BrokerDetail.find({
-          _id: { $ne: fromId } // Exclude the fromBroker
-        }).select('userId').populate('userId', '_id');
-        
-        for (const broker of allBrokers) {
-          if (broker.userId) {
-            allTransferNotifications.push(
-              createTransferNotification(broker._id, fromId, lead, fromBroker?.userId || req.user)
-            );
-          }
+        const allNotification = await createAllBrokersTransferNotification(fromId, lead, fromBroker);
+        if (allNotification) {
+          console.log('Successfully created single "all brokers" transfer notification');
         }
+        // Don't create individual notifications for "all" - we already created one
+        return;
       }
       
+      // Convert Set to Array and create notifications for each unique recipient broker
+      // (only for individual and region transfers)
+      const uniqueRecipientIds = Array.from(recipientBrokerIds).filter(Boolean);
+      
+      if (uniqueRecipientIds.length === 0) {
+        console.warn('No recipient brokers found for transfer notification');
+        return;
+      }
+      
+      console.log(`Creating ${uniqueRecipientIds.length} transfer notifications for brokers:`, uniqueRecipientIds);
+      
+      const notifications = uniqueRecipientIds.map(toBrokerId =>
+        createTransferNotification(toBrokerId, fromId, lead, fromBroker)
+      );
+      
       // Send all notifications
-      await Promise.all([
-        ...individualNotifications,
-        ...regionNotifications,
-        ...allTransferNotifications
-      ]);
+      const results = await Promise.all(notifications);
+      const successCount = results.filter(r => r !== null).length;
+      console.log(`Successfully created ${successCount} out of ${notifications.length} transfer notifications`);
     } catch (notifError) {
       // Don't fail the request if notification fails
       console.error('Error creating transfer notification:', notifError);
+      console.error('Stack:', notifError.stack);
     }
     
     return successResponse(res, 'Transfer(s) and notes processed successfully', { lead });

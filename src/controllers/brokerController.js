@@ -422,10 +422,11 @@ export const approveBroker = async (req, res) => {
     }
 
     // Create notification for broker approval
+    // Use userId from token (req.user._id)
     try {
-      if (broker.userId) {
+      if (req.user?._id) {
         await createNotification({
-          userId: broker.userId,
+          userId: req.user._id,
           type: 'approval',
           title: 'Broker Account Approved',
           message: 'Your broker account has been approved and unblocked by admin.',
@@ -436,7 +437,7 @@ export const approveBroker = async (req, res) => {
           },
           activity: {
             action: 'approved',
-            actorId: req.user?._id,
+            actorId: req.user._id,
             actorName: req.user?.name || 'Admin'
           },
           metadata: {
@@ -518,10 +519,11 @@ export const rejectBroker = async (req, res) => {
     }
 
     // Create notification for broker rejection/blocking
+    // Use userId from token (req.user._id)
     try {
-      if (broker.userId) {
+      if (req.user?._id) {
         await createNotification({
-          userId: broker.userId,
+          userId: req.user._id,
           type: 'approval',
           title: 'Broker Account Blocked',
           message: 'Your broker account has been blocked by admin. Please contact support for more information.',
@@ -532,7 +534,7 @@ export const rejectBroker = async (req, res) => {
           },
           activity: {
             action: 'blocked',
-            actorId: req.user?._id,
+            actorId: req.user._id,
             actorName: req.user?.name || 'Admin'
           },
           metadata: {
@@ -613,10 +615,11 @@ export const updateBrokerVerification = async (req, res) => {
     await broker.save();
 
     // Create notification for verification status change
+    // Use userId from token (req.user._id)
     try {
-      if (broker.userId) {
+      if (req.user?._id) {
         await createNotification({
-          userId: broker.userId,
+          userId: req.user._id,
           type: 'approval',
           title: `Broker Verification Status: ${verificationStatus}`,
           message: `Your broker verification status has been updated to ${verificationStatus} by admin.`,
@@ -627,7 +630,7 @@ export const updateBrokerVerification = async (req, res) => {
           },
           activity: {
             action: 'verificationUpdated',
-            actorId: req.user?._id,
+            actorId: req.user._id,
             actorName: req.user?.name || 'Admin'
           },
           metadata: {

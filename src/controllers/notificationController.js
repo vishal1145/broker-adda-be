@@ -1,4 +1,5 @@
 import Notification from '../models/Notification.js';
+import User from '../models/User.js';
 import Lead from '../models/Lead.js';
 import Property from '../models/Property.js';
 import BrokerDetail from '../models/BrokerDetail.js';
@@ -23,8 +24,23 @@ export const getAllNotifications = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    // Check if user has push notifications enabled and get disabled timestamp
+    const user = await User.findById(userId).select('pushNotificationsEnabled notificationsDisabledAt');
+    
     // Build query
     const query = { userId };
+    
+    // If notifications are disabled, only show notifications created BEFORE the disable time
+    if (user && !user.pushNotificationsEnabled) {
+      if (user.notificationsDisabledAt) {
+        // Use the saved timestamp - show only notifications created before disable time
+        query.createdAt = { $lt: user.notificationsDisabledAt };
+      } else {
+        // Edge case: disabled but no timestamp (legacy data or inconsistency)
+        // Use current time to hide future notifications but show existing ones
+        query.createdAt = { $lt: new Date() };
+      }
+    }
 
     if (isRead !== undefined) {
       query.isRead = isRead === 'true';
@@ -121,6 +137,7 @@ export const getAllNotifications = async (req, res) => {
         hasPrevPage: parseInt(page) > 1
       },
       unreadCount,
+      pushNotificationsEnabled: user.pushNotificationsEnabled,
       countsByType: countsByType.reduce((acc, item) => {
         acc[item._id] = {
           total: item.count,
@@ -360,6 +377,35 @@ export const adminGetAllNotifications = async (req, res) => {
 
     if (userId) {
       query.userId = userId;
+      
+      // Check if this user has notifications disabled and apply filter
+      const targetUser = await User.findById(userId).select('pushNotificationsEnabled notificationsDisabledAt');
+      if (targetUser && !targetUser.pushNotificationsEnabled && targetUser.notificationsDisabledAt) {
+        // Only show notifications created BEFORE the disable time
+        if (days) {
+          const daysAgo = new Date();
+          daysAgo.setDate(daysAgo.getDate() - parseInt(days));
+          // Combine both filters: after daysAgo AND before disabledAt
+          query.createdAt = { 
+            $gte: daysAgo,
+            $lt: targetUser.notificationsDisabledAt
+          };
+        } else {
+          query.createdAt = { $lt: targetUser.notificationsDisabledAt };
+        }
+      } else if (days) {
+        const daysAgo = new Date();
+        daysAgo.setDate(daysAgo.getDate() - parseInt(days));
+        query.createdAt = { $gte: daysAgo };
+      }
+    } else {
+      // If no specific userId, we need to filter per user
+      // This is more complex - we'll handle it after fetching
+      if (days) {
+        const daysAgo = new Date();
+        daysAgo.setDate(daysAgo.getDate() - parseInt(days));
+        query.createdAt = { $gte: daysAgo };
+      }
     }
 
     if (isRead !== undefined) {
@@ -374,20 +420,45 @@ export const adminGetAllNotifications = async (req, res) => {
       query['relatedEntity.entityType'] = entityType;
     }
 
-    if (days) {
-      const daysAgo = new Date();
-      daysAgo.setDate(daysAgo.getDate() - parseInt(days));
-      query.createdAt = { $gte: daysAgo };
-    }
-
     // Get notifications with pagination - only essential fields
     let notifications = await Notification.find(query)
       .populate('userId', 'name role')
       .populate('activity.actorId', 'name')
-      .select('type title message isRead relatedEntity activity createdAt')
+      .select('type title message isRead relatedEntity activity createdAt userId')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
+
+    // If no specific userId, filter notifications based on each user's disabledAt timestamp
+    if (!userId) {
+      // Get all unique user IDs from notifications
+      const userIds = [...new Set(notifications.map(n => String(n.userId?._id || n.userId)))];
+      
+      // Get disabledAt timestamps for all users
+      const usersWithDisabledAt = await User.find({ 
+        _id: { $in: userIds },
+        pushNotificationsEnabled: false,
+        notificationsDisabledAt: { $exists: true, $ne: null }
+      }).select('_id notificationsDisabledAt').lean();
+      
+      const userDisabledAtMap = new Map();
+      usersWithDisabledAt.forEach(u => {
+        userDisabledAtMap.set(String(u._id), u.notificationsDisabledAt);
+      });
+      
+      // Filter notifications: only show those created BEFORE the user's disabledAt time
+      notifications = notifications.filter(notification => {
+        const notifUserId = String(notification.userId?._id || notification.userId);
+        const disabledAt = userDisabledAtMap.get(notifUserId);
+        
+        if (disabledAt) {
+          // Only show notifications created before disabledAt
+          return new Date(notification.createdAt) < new Date(disabledAt);
+        }
+        // If user doesn't have disabledAt, show all notifications
+        return true;
+      });
+    }
 
     // Populate only essential related entity fields
     notifications = await Promise.all(notifications.map(async (notification) => {
@@ -753,6 +824,49 @@ export const adminMarkAllAsRead = async (req, res) => {
         userId: userId || 'all',
         days: days || 'all'
       }
+    });
+
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+export const togglePushNotifications = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { enable } = req.body; // boolean: true to enable, false to disable
+
+    if (typeof enable !== 'boolean') {
+      return errorResponse(res, 'Boolean value "enable" is required', 400);
+    }
+
+    // Prepare update object
+    const update = { pushNotificationsEnabled: enable };
+    
+    if (!enable) {
+      // When disabling: set the timestamp to current time
+      update.notificationsDisabledAt = new Date();
+    } else {
+      // When enabling: clear the timestamp (set to null)
+      update.notificationsDisabledAt = null;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      update,
+      { new: true, select: 'pushNotificationsEnabled notificationsDisabledAt name email' }
+    );
+
+    if (!user) {
+      return errorResponse(res, 'User not found', 404);
+    }
+
+    return successResponse(res, `Push notifications ${enable ? 'enabled' : 'disabled'} successfully`, {
+      pushNotificationsEnabled: user.pushNotificationsEnabled,
+      notificationsDisabledAt: user.notificationsDisabledAt,
+      message: enable 
+        ? 'Notifications will now be visible' 
+        : 'Notifications are now hidden'
     });
 
   } catch (error) {
