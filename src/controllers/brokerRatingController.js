@@ -169,3 +169,77 @@ export const getCustomerRatingForBroker = async (req, res) => {
   }
 };
 
+// Get all brokers with their average ratings
+export const getAllBrokerAverageRatings = async (req, res) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get all brokers with pagination
+    const brokers = await BrokerDetail.find()
+      .select('_id name email phone firmName city state status createdAt')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    const totalBrokers = await BrokerDetail.countDocuments();
+
+    // Get all broker IDs
+    const brokerIds = brokers.map(b => b._id);
+
+    // Get average ratings for all brokers
+    const ratingStats = brokerIds.length > 0 ? await BrokerRating.aggregate([
+      { $match: { brokerId: { $in: brokerIds } } },
+      {
+        $group: {
+          _id: '$brokerId',
+          averageRating: { $avg: '$rating' },
+          totalRatings: { $sum: 1 }
+        }
+      }
+    ]) : [];
+
+    // Create rating map
+    const brokerIdToRating = new Map();
+    for (const r of ratingStats) {
+      const key = String(r._id);
+      brokerIdToRating.set(key, {
+        rating: Math.round(r.averageRating * 10) / 10,
+        totalRatings: r.totalRatings,
+        isDefaultRating: false
+      });
+    }
+
+    // Attach ratings to brokers (default 4 if no ratings)
+    const brokersWithRatings = brokers.map(broker => {
+      const key = String(broker._id);
+      const ratingInfo = brokerIdToRating.get(key) || {
+        rating: 4,
+        totalRatings: 0,
+        isDefaultRating: true
+      };
+      return {
+        ...broker,
+        rating: ratingInfo.rating,
+        totalRatings: ratingInfo.totalRatings,
+        isDefaultRating: ratingInfo.isDefaultRating
+      };
+    });
+
+    return successResponse(res, 'All broker average ratings retrieved successfully', {
+      brokers: brokersWithRatings,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalBrokers / parseInt(limit)),
+        totalBrokers,
+        hasNextPage: parseInt(page) < Math.ceil(totalBrokers / parseInt(limit)),
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+

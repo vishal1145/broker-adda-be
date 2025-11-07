@@ -169,3 +169,77 @@ export const getUserRatingForProperty = async (req, res) => {
   }
 };
 
+// Get all properties with their average ratings
+export const getAllPropertyAverageRatings = async (req, res) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get all properties with pagination
+    const properties = await Property.find()
+      .select('_id title address city propertyType price status createdAt')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    const totalProperties = await Property.countDocuments();
+
+    // Get all property IDs
+    const propertyIds = properties.map(p => p._id);
+
+    // Get average ratings for all properties
+    const ratingStats = propertyIds.length > 0 ? await PropertyRating.aggregate([
+      { $match: { propertyId: { $in: propertyIds } } },
+      {
+        $group: {
+          _id: '$propertyId',
+          averageRating: { $avg: '$rating' },
+          totalRatings: { $sum: 1 }
+        }
+      }
+    ]) : [];
+
+    // Create rating map
+    const propertyIdToRating = new Map();
+    for (const r of ratingStats) {
+      const key = String(r._id);
+      propertyIdToRating.set(key, {
+        rating: Math.round(r.averageRating * 10) / 10,
+        totalRatings: r.totalRatings,
+        isDefaultRating: false
+      });
+    }
+
+    // Attach ratings to properties (default 4 if no ratings)
+    const propertiesWithRatings = properties.map(property => {
+      const key = String(property._id);
+      const ratingInfo = propertyIdToRating.get(key) || {
+        rating: 4,
+        totalRatings: 0,
+        isDefaultRating: true
+      };
+      return {
+        ...property,
+        rating: ratingInfo.rating,
+        totalRatings: ratingInfo.totalRatings,
+        isDefaultRating: ratingInfo.isDefaultRating
+      };
+    });
+
+    return successResponse(res, 'All property average ratings retrieved successfully', {
+      properties: propertiesWithRatings,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalProperties / parseInt(limit)),
+        totalProperties,
+        hasNextPage: parseInt(page) < Math.ceil(totalProperties / parseInt(limit)),
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+

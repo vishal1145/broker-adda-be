@@ -2,7 +2,8 @@ import express from 'express';
 import {
   createBrokerRating,
   getBrokerRatings,
-  getCustomerRatingForBroker
+  getCustomerRatingForBroker,
+  getAllBrokerAverageRatings
 } from '../controllers/brokerRatingController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
@@ -12,6 +13,9 @@ const router = express.Router();
 
 // Create/Save broker rating (requires authentication)
 router.post('/', authenticate, validate(createBrokerRatingSchema), createBrokerRating);
+
+// Get all brokers with average ratings (public)
+router.get('/all', getAllBrokerAverageRatings);
 
 // Get all ratings for a specific broker (public)
 router.get('/broker/:brokerId', getBrokerRatings);
