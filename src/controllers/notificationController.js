@@ -5,6 +5,7 @@ import Property from '../models/Property.js';
 import BrokerDetail from '../models/BrokerDetail.js';
 import CustomerDetail from '../models/CustomerDetail.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
+import mongoose from 'mongoose';
 
 /**
  * Get all notifications for the authenticated user
@@ -376,7 +377,12 @@ export const adminGetAllNotifications = async (req, res) => {
     const query = {};
 
     if (userId) {
-      query.userId = userId;
+      // Validate userId is a valid ObjectId
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return errorResponse(res, 'Invalid userId format', 400);
+      }
+      
+      query.userId = new mongoose.Types.ObjectId(userId);
       
       // Check if this user has notifications disabled and apply filter
       const targetUser = await User.findById(userId).select('pushNotificationsEnabled notificationsDisabledAt');
@@ -431,15 +437,22 @@ export const adminGetAllNotifications = async (req, res) => {
 
     // If no specific userId, filter notifications based on each user's disabledAt timestamp
     if (!userId) {
-      // Get all unique user IDs from notifications
-      const userIds = [...new Set(notifications.map(n => String(n.userId?._id || n.userId)))];
+      // Get all unique user IDs from notifications, filtering out null/invalid values
+      const userIds = [...new Set(
+        notifications
+          .map(n => {
+            const uid = n.userId?._id || n.userId;
+            return uid ? String(uid) : null;
+          })
+          .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+      )];
       
-      // Get disabledAt timestamps for all users
-      const usersWithDisabledAt = await User.find({ 
-        _id: { $in: userIds },
+      // Get disabledAt timestamps for all users (only if we have valid IDs)
+      const usersWithDisabledAt = userIds.length > 0 ? await User.find({ 
+        _id: { $in: userIds.map(id => new mongoose.Types.ObjectId(id)) },
         pushNotificationsEnabled: false,
         notificationsDisabledAt: { $exists: true, $ne: null }
-      }).select('_id notificationsDisabledAt').lean();
+      }).select('_id notificationsDisabledAt').lean() : [];
       
       const userDisabledAtMap = new Map();
       usersWithDisabledAt.forEach(u => {
@@ -448,7 +461,12 @@ export const adminGetAllNotifications = async (req, res) => {
       
       // Filter notifications: only show those created BEFORE the user's disabledAt time
       notifications = notifications.filter(notification => {
-        const notifUserId = String(notification.userId?._id || notification.userId);
+        const uid = notification.userId?._id || notification.userId;
+        if (!uid) {
+          // If notification has no userId, show it (shouldn't happen, but handle gracefully)
+          return true;
+        }
+        const notifUserId = String(uid);
         const disabledAt = userDisabledAtMap.get(notifUserId);
         
         if (disabledAt) {
@@ -625,7 +643,11 @@ export const adminGetRecentActivity = async (req, res) => {
     };
 
     if (userId) {
-      query.userId = userId;
+      // Validate userId is a valid ObjectId
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return errorResponse(res, 'Invalid userId format', 400);
+      }
+      query.userId = new mongoose.Types.ObjectId(userId);
     }
 
     if (type) {
@@ -793,7 +815,11 @@ export const adminMarkAllAsRead = async (req, res) => {
     const query = { isRead: false };
 
     if (userId) {
-      query.userId = userId;
+      // Validate userId is a valid ObjectId
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return errorResponse(res, 'Invalid userId format', 400);
+      }
+      query.userId = new mongoose.Types.ObjectId(userId);
     }
 
     if (type) {
