@@ -1,4 +1,5 @@
 import BrokerDetail from '../models/BrokerDetail.js';
+import BrokerRating from '../models/BrokerRating.js';
 import Lead from '../models/Lead.js';
 import Property from '../models/Property.js';
 import User from '../models/User.js';
@@ -142,7 +143,7 @@ export const getAllBrokers = async (req, res) => {
 
     // Prepare lead/property stats and property lists for each broker
     const brokerIds = brokers.map(b => b._id);
-    const [leadCountsAgg, leadsBasic, propertyCountsAgg, brokerProperties] = await Promise.all([
+    const [leadCountsAgg, leadsBasic, propertyCountsAgg, brokerProperties, ratingStatsAgg] = await Promise.all([
       Lead.aggregate([
         { $match: { createdBy: { $in: brokerIds } } },
         { $group: { _id: '$createdBy', count: { $sum: 1 } } }
@@ -157,10 +158,29 @@ export const getAllBrokers = async (req, res) => {
       Property.find({ broker: { $in: brokerIds } })
         .select('_id title price priceUnit images status createdAt broker')
         .sort({ createdAt: -1 })
-        .lean()
+        .lean(),
+      BrokerRating.aggregate([
+        { $match: { brokerId: { $in: brokerIds } } },
+        {
+          $group: {
+            _id: '$brokerId',
+            averageRating: { $avg: '$rating' },
+            totalRatings: { $sum: 1 }
+          }
+        }
+      ])
     ]);
     const brokerIdToLeadCount = new Map(leadCountsAgg.map(x => [String(x._id), x.count]));
     const brokerIdToPropertyCount = new Map(propertyCountsAgg.map(x => [String(x._id), x.count]));
+    const brokerIdToRating = new Map();
+    for (const r of ratingStatsAgg) {
+      const key = String(r._id);
+      brokerIdToRating.set(key, {
+        rating: Math.round(r.averageRating * 10) / 10,
+        totalRatings: r.totalRatings,
+        isDefaultRating: false
+      });
+    }
     const brokerIdToLeads = new Map();
     const brokerIdToProperties = new Map();
     for (const l of leadsBasic) {
@@ -234,6 +254,16 @@ export const getAllBrokers = async (req, res) => {
       brokerObj.leadCount = brokerIdToLeadCount.get(key) || 0;
       brokerObj.propertyCount = brokerIdToPropertyCount.get(key) || 0;
       brokerObj.properties = brokerIdToProperties.get(key) || [];
+
+      // Attach rating (default 4 if no ratings)
+      const ratingInfo = brokerIdToRating.get(key) || {
+        rating: 4,
+        totalRatings: 0,
+        isDefaultRating: true
+      };
+      brokerObj.rating = ratingInfo.rating;
+      brokerObj.totalRatings = ratingInfo.totalRatings;
+      brokerObj.isDefaultRating = ratingInfo.isDefaultRating;
 
       const brokerSubscription = await Subscription.findOne({ user: new mongoose.Types.ObjectId(brokerObj.userId), endDate: { $gt: new Date() } });
       brokerObj.subscription = brokerSubscription || null;
@@ -320,6 +350,31 @@ export const getBrokerById = async (req, res) => {
         .sort({ createdAt: -1 })
         .lean()
     ]);
+
+    // Calculate broker rating (default 4 if no ratings)
+    const ratingStats = await BrokerRating.aggregate([
+      { $match: { brokerId: broker._id } },
+      {
+        $group: {
+          _id: null,
+          averageRating: { $avg: '$rating' },
+          totalRatings: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Handle case when no ratings exist (empty array or totalRatings is 0)
+    const stats = ratingStats[0] || { averageRating: null, totalRatings: 0 };
+    const hasRatings = stats.totalRatings > 0;
+    
+    const rating = hasRatings 
+      ? Math.round(stats.averageRating * 10) / 10 
+      : 4;
+
+    brokerObj.rating = rating;
+    brokerObj.totalRatings = stats.totalRatings;
+    brokerObj.isDefaultRating = !hasRatings;
+
     brokerObj.leadsCreated = {
       count: leadCount,
       items: leads

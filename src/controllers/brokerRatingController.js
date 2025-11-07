@@ -104,7 +104,7 @@ export const getBrokerRatings = async (req, res) => {
     ]);
 
     const stats = ratingStats[0] || {
-      averageRating: 0,
+      averageRating: null,
       totalRatings: 0,
       ratingDistribution: []
     };
@@ -118,6 +118,12 @@ export const getBrokerRatings = async (req, res) => {
       1: stats.ratingDistribution.filter(r => r === 1).length
     };
 
+    // If no ratings exist, use default rating of 4
+    const hasRatings = stats.totalRatings > 0;
+    const averageRating = hasRatings 
+      ? Math.round(stats.averageRating * 10) / 10 
+      : 4;
+
     return successResponse(res, 'Broker ratings retrieved successfully', {
       ratings,
       pagination: {
@@ -127,9 +133,10 @@ export const getBrokerRatings = async (req, res) => {
         pages: Math.ceil(total / parseInt(limit))
       },
       stats: {
-        averageRating: Math.round(stats.averageRating * 10) / 10,
+        averageRating,
         totalRatings: stats.totalRatings,
-        distribution
+        distribution,
+        isDefaultRating: !hasRatings
       }
     });
   } catch (error) {

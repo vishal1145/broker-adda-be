@@ -1,6 +1,7 @@
 // src/controllers/propertyController.js
 import mongoose from "mongoose";
 import Property from "../models/Property.js";
+import PropertyRating from "../models/PropertyRating.js";
 import BrokerDetail from "../models/BrokerDetail.js"; // ✅ correct model
 import Region from "../models/Region.js";
 import { getFileUrl } from "../middleware/upload.js";
@@ -306,12 +307,52 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
         .skip(skip)
         .limit(limitNum)
         .lean(),
-      Property.countDocuments(filter),
+      Property.countDocuments(filter)
     ]);
+
+    // Get property IDs and fetch ratings
+    const propertyIds = items.map(i => i._id);
+    const ratingStatsAgg = propertyIds.length > 0 ? await PropertyRating.aggregate([
+      { $match: { propertyId: { $in: propertyIds } } },
+      {
+        $group: {
+          _id: '$propertyId',
+          averageRating: { $avg: '$rating' },
+          totalRatings: { $sum: 1 }
+        }
+      }
+    ]) : [];
+
+    // Create rating map
+    const propertyIdToRating = new Map();
+    for (const r of ratingStatsAgg) {
+      const key = String(r._id);
+      propertyIdToRating.set(key, {
+        rating: Math.round(r.averageRating * 10) / 10,
+        totalRatings: r.totalRatings,
+        isDefaultRating: false
+      });
+    }
+
+    // Attach ratings to properties (default 4 if no ratings)
+    const itemsWithRatings = items.map(item => {
+      const key = String(item._id);
+      const ratingInfo = propertyIdToRating.get(key) || {
+        rating: 4,
+        totalRatings: 0,
+        isDefaultRating: true
+      };
+      return {
+        ...item,
+        rating: ratingInfo.rating,
+        totalRatings: ratingInfo.totalRatings,
+        isDefaultRating: ratingInfo.isDefaultRating
+      };
+    });
 
     return res.json({
       success: true,
-      data: items,
+      data: itemsWithRatings,
       pagination: {
         total,
         page: pageNum,
@@ -362,6 +403,30 @@ const doc = await Property.findById(id, projection)
     if (!doc) {
       return res.status(404).json({ success: false, message: "Property not found" });
     }
+
+    // Calculate property rating (default 4 if no ratings)
+    const ratingStats = await PropertyRating.aggregate([
+      { $match: { propertyId: new mongoose.Types.ObjectId(id) } },
+      {
+        $group: {
+          _id: null,
+          averageRating: { $avg: '$rating' },
+          totalRatings: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Handle case when no ratings exist (empty array or totalRatings is 0)
+    const stats = ratingStats[0] || { averageRating: null, totalRatings: 0 };
+    const hasRatings = stats.totalRatings > 0;
+    
+    const rating = hasRatings 
+      ? Math.round(stats.averageRating * 10) / 10 
+      : 4;
+
+    doc.rating = rating;
+    doc.totalRatings = stats.totalRatings;
+    doc.isDefaultRating = !hasRatings;
 
     return res.json({ success: true, data: doc });
   } catch (err) {
