@@ -2,6 +2,15 @@ import User from '../models/User.js';
 import BrokerDetail from '../models/BrokerDetail.js';
 import CustomerDetail from '../models/CustomerDetail.js';
 import Region from '../models/Region.js';
+import SavedProperty from '../models/SavedProperty.js';
+import Notification from '../models/Notification.js';
+import PropertyRating from '../models/PropertyRating.js';
+import BrokerRating from '../models/BrokerRating.js';
+import Payment from '../models/Payment.js';
+import Chat from '../models/Chat.js';
+import Message from '../models/Message.js';
+import Subscription from '../models/Subscription.js';
+import Lead from '../models/Lead.js';
 import { generateToken, generateOTP } from '../utils/jwt.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 import { getFileUrl } from '../middleware/upload.js';
@@ -1113,5 +1122,100 @@ export const adminCreateBroker = async (req, res) => {
       return errorResponse(res, msg, 400);
     }
     return serverError(res, err);
+  }
+};
+
+// Delete account
+export const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return errorResponse(res, 'User not found', 404);
+    }
+
+    // Prevent admin account deletion
+    if (user.role === 'admin') {
+      return errorResponse(res, 'Admin accounts cannot be deleted', 403);
+    }
+
+    // Delete role-specific details
+    if (user.role === 'broker') {
+      const brokerDetail = await BrokerDetail.findOne({ userId });
+      if (brokerDetail) {
+        // Update region broker counts before deleting broker
+        if (brokerDetail.region && brokerDetail.region.length > 0) {
+          // Decrement broker count for each region
+          for (const regionId of brokerDetail.region) {
+            await Region.findByIdAndUpdate(regionId, { $inc: { brokerCount: -1 } });
+          }
+        }
+        
+        // Delete leads created by this broker
+        await Lead.deleteMany({ createdBy: brokerDetail._id });
+        
+        // Delete broker ratings (ratings given to this broker)
+        await BrokerRating.deleteMany({ brokerId: brokerDetail._id });
+        
+        // Delete broker detail
+        await BrokerDetail.findByIdAndDelete(brokerDetail._id);
+      }
+    } else if (user.role === 'customer') {
+      const customerDetail = await CustomerDetail.findOne({ userId });
+      if (customerDetail) {
+        // Delete customer detail
+        await CustomerDetail.findByIdAndDelete(customerDetail._id);
+      }
+    }
+
+    // Delete user-related data
+    await SavedProperty.deleteMany({ userId });
+    await Notification.deleteMany({ userId });
+    await PropertyRating.deleteMany({ userId });
+    await BrokerRating.deleteMany({ userId }); // Ratings given by this user
+    await Payment.deleteMany({ user: userId });
+    await Subscription.deleteMany({ user: userId });
+
+    // Handle chats and messages
+    // Find all chats where user is a participant
+    const userChats = await Chat.find({ participants: userId });
+    
+    for (const chat of userChats) {
+      // If chat has only one participant (this user), delete the entire chat
+      if (chat.participants.length === 1) {
+        await Message.deleteMany({ chatId: chat._id });
+        await Chat.findByIdAndDelete(chat._id);
+      } else {
+        // Remove user from participants and update unreadCounts
+        chat.participants = chat.participants.filter(
+          p => p.toString() !== userId.toString()
+        );
+        chat.unreadCounts?.delete(userId.toString());
+        await chat.save();
+        
+        // Mark messages as deleted for this user
+        await Message.updateMany(
+          { chatId: chat._id },
+          { $addToSet: { isDeletedFor: userId } }
+        );
+      }
+    }
+
+    // Delete messages sent by this user (if chat still exists)
+    await Message.updateMany(
+      { from: userId },
+      { $set: { text: '[Message deleted]', attachments: [] } }
+    );
+
+    // Finally, delete the user
+    await User.findByIdAndDelete(userId);
+
+    return successResponse(res, 'Account deleted successfully', {
+      message: 'Your account and all associated data have been permanently deleted'
+    });
+
+  } catch (error) {
+    return serverError(res, error);
   }
 };

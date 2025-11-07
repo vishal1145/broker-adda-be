@@ -9,7 +9,8 @@ import {
   getProfile,
   updateProfile,
   checkEmailExists,
-  adminCreateBroker,            // ✅ make sure this is exported from controller
+  adminCreateBroker,
+  deleteAccount,
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
@@ -42,5 +43,6 @@ router.get('/check-email', checkEmailExists);
 // Protected routes
 router.get('/profile', authenticate, getProfile);
 router.put('/profile', authenticate, updateProfile);
+router.delete('/account', authenticate, deleteAccount);
 
 export default router;
