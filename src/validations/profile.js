@@ -25,11 +25,23 @@ export const completeProfileSchema = Joi.object({
     ).optional(),
     website: Joi.string().uri().optional().max(200).trim(),
     socialMedia: Joi.object({
-      linkedin: Joi.string().uri().optional().max(200).trim(),
-      twitter: Joi.string().uri().optional().max(200).trim(),
-      instagram: Joi.string().uri().optional().max(200).trim(),
-      facebook: Joi.string().uri().optional().max(200).trim()
-    }).optional(),
+      linkedin: Joi.alternatives().try(
+        Joi.string().uri().max(200).trim(),
+        Joi.string().allow('', null).max(200).trim()
+      ).optional(),
+      twitter: Joi.alternatives().try(
+        Joi.string().uri().max(200).trim(),
+        Joi.string().allow('', null).max(200).trim()
+      ).optional(),
+      instagram: Joi.alternatives().try(
+        Joi.string().uri().max(200).trim(),
+        Joi.string().allow('', null).max(200).trim()
+      ).optional(),
+      facebook: Joi.alternatives().try(
+        Joi.string().uri().max(200).trim(),
+        Joi.string().allow('', null).max(200).trim()
+      ).optional()
+    }).optional().allow(null),
     region: Joi.array().items(
       Joi.string().pattern(/^[0-9a-fA-F]{24}$/)
     ).min(1).required(),
