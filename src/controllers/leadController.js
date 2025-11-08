@@ -1,5 +1,6 @@
 import Lead from '../models/Lead.js';
 import Property from '../models/Property.js';
+import Chat from '../models/Chat.js';
 import mongoose from 'mongoose';
 import { getFileUrl } from '../middleware/upload.js';
 import BrokerDetail from '../models/BrokerDetail.js';
@@ -907,6 +908,21 @@ export const getTransferredLeads = async (req, res) => {
   }
 };
 
+/**
+ * Calculate percentage change between two values
+ * @param {number} current - Current period value
+ * @param {number} previous - Previous period value
+ * @returns {number} Percentage change (rounded to 1 decimal place)
+ */
+const calculatePercentageChange = (current, previous) => {
+  if (previous === 0) {
+    // If previous is 0, return 0% (no meaningful percentage change)
+    return 0;
+  }
+  const change = ((current - previous) / previous) * 100;
+  return Math.round(change * 10) / 10; // Round to 1 decimal place
+};
+
 export const getLeadMetrics = async (req, res) => {
   try {
     // Optional filters/actors
@@ -923,11 +939,31 @@ export const getLeadMetrics = async (req, res) => {
       matchBase.createdBy = new mongoose.Types.ObjectId(String(createdByBrokerId));
     }
 
+    // Property filter for broker-scoped queries
+    const propertyMatchBase = {};
+    if (createdByBrokerId) {
+      propertyMatchBase.broker = new mongoose.Types.ObjectId(String(createdByBrokerId));
+    }
+
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
+
+    // Date ranges for percentage calculation (last 30 days vs previous 30 days for more accurate comparison)
+    const now = new Date();
+    const endOfCurrentPeriod = new Date(now);
+    endOfCurrentPeriod.setHours(23, 59, 59, 999);
+    const startOfCurrentPeriod = new Date(now);
+    startOfCurrentPeriod.setDate(now.getDate() - 30);
+    startOfCurrentPeriod.setHours(0, 0, 0, 0);
+    
+    const endOfPreviousPeriod = new Date(startOfCurrentPeriod);
+    endOfPreviousPeriod.setMilliseconds(endOfPreviousPeriod.getMilliseconds() - 1);
+    const startOfPreviousPeriod = new Date(startOfCurrentPeriod);
+    startOfPreviousPeriod.setDate(startOfPreviousPeriod.getDate() - 30);
+    startOfPreviousPeriod.setHours(0, 0, 0, 0);
 
     // Resolve WHICH broker to use for transfer metrics (actor)
     let actorBrokerId = brokerId || null;
@@ -951,15 +987,51 @@ export const getLeadMetrics = async (req, res) => {
       }
     }
 
-    const [totalLeads, newLeadsToday, convertedLeads, avgDealAgg, transfersToMeAgg, transfersByMeAgg, totalProperties] = await Promise.all([
+    // Build connections filter - participants are BrokerDetail IDs (based on chatController usage)
+    const connectionsMatchBase = createdByBrokerId 
+      ? { participants: new mongoose.Types.ObjectId(String(createdByBrokerId)) } 
+      : {};
+
+    // Calculate all metrics including percentage changes
+    const [
+      totalLeads,
+      totalLeadsCurrentPeriod,
+      totalLeadsPreviousPeriod,
+      newLeadsToday,
+      convertedLeads,
+      avgDealAgg,
+      transfersToMeAgg,
+      transfersByMeAgg,
+      totalProperties,
+      totalPropertiesCurrentPeriod,
+      totalPropertiesPreviousPeriod,
+      totalConnections,
+      totalConnectionsCurrentPeriod,
+      totalConnectionsPreviousPeriod
+    ] = await Promise.all([
+      // Total leads (all time)
       Lead.countDocuments(matchBase),
+      // Total leads - current period (last 30 days)
+      Lead.countDocuments({
+        ...matchBase,
+        createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod }
+      }),
+      // Total leads - previous period (previous 30 days)
+      Lead.countDocuments({
+        ...matchBase,
+        createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod }
+      }),
+      // New leads today
       Lead.countDocuments({ ...matchBase, createdAt: { $gte: startOfToday, $lte: endOfToday } }),
+      // Converted leads
       Lead.countDocuments({ ...matchBase, status: 'Closed' }),
+      // Average deal size
       Lead.aggregate([
         { $match: { ...matchBase, status: 'Closed', budget: { $ne: null } } },
         { $group: { _id: null, avg: { $avg: '$budget' } } },
         { $project: { _id: 0, avg: 1 } }
       ]),
+      // Transfers to me
       actorBrokerId
         ? Lead.aggregate([
             { $unwind: '$transfers' },
@@ -967,6 +1039,7 @@ export const getLeadMetrics = async (req, res) => {
             { $count: 'count' }
           ])
         : Promise.resolve([]),
+      // Transfers by me
       actorBrokerId
         ? Lead.aggregate([
             { $unwind: '$transfers' },
@@ -974,11 +1047,46 @@ export const getLeadMetrics = async (req, res) => {
             { $count: 'count' }
           ])
         : Promise.resolve([]),
-      // Total properties (scoped to broker if createdBy provided)
+      // Total properties (all time)
       createdByBrokerId
-        ? Property.countDocuments({ broker: createdByBrokerId })
-        : Property.countDocuments()
+        ? Property.countDocuments(propertyMatchBase)
+        : Property.countDocuments(),
+      // Total properties - current period (last 30 days)
+      createdByBrokerId
+        ? Property.countDocuments({
+            ...propertyMatchBase,
+            createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod }
+          })
+        : Property.countDocuments({
+            createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod }
+          }),
+      // Total properties - previous period (previous 30 days)
+      createdByBrokerId
+        ? Property.countDocuments({
+            ...propertyMatchBase,
+            createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod }
+          })
+        : Property.countDocuments({
+            createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod }
+          }),
+      // Total connections (chats) - all time (filtered by broker if createdBy provided)
+      Chat.countDocuments(connectionsMatchBase),
+      // Total connections - current period (last 30 days)
+      Chat.countDocuments({
+        ...connectionsMatchBase,
+        createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod }
+      }),
+      // Total connections - previous period (previous 30 days)
+      Chat.countDocuments({
+        ...connectionsMatchBase,
+        createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod }
+      })
     ]);
+
+    // Calculate percentage changes
+    const totalLeadsPercentage = calculatePercentageChange(totalLeadsCurrentPeriod, totalLeadsPreviousPeriod);
+    const totalPropertiesPercentage = calculatePercentageChange(totalPropertiesCurrentPeriod, totalPropertiesPreviousPeriod);
+    const totalConnectionsPercentage = calculatePercentageChange(totalConnectionsCurrentPeriod, totalConnectionsPreviousPeriod);
 
     const averageDealSize = Array.isArray(avgDealAgg) && avgDealAgg.length > 0 ? avgDealAgg[0].avg : 0;
     const transfersToMe = Array.isArray(transfersToMeAgg) && transfersToMeAgg.length > 0 ? transfersToMeAgg[0].count : 0;
@@ -986,12 +1094,16 @@ export const getLeadMetrics = async (req, res) => {
 
     return successResponse(res, 'Lead metrics retrieved successfully', {
       totalLeads,
+      totalLeadsPercentageChange: totalLeadsPercentage,
       newLeadsToday,
       convertedLeads,
       averageDealSize,
       transfersToMe,
       transfersByMe,
-      totalProperties
+      totalProperties,
+      totalPropertiesPercentageChange: totalPropertiesPercentage,
+      totalConnections,
+      totalConnectionsPercentageChange: totalConnectionsPercentage
     });
   } catch (error) {
     return serverError(res, error);
