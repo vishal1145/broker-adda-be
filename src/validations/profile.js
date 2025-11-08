@@ -6,16 +6,16 @@ export const completeProfileSchema = Joi.object({
   name: Joi.string().required().min(2).max(50).trim(),
   email: Joi.string().email().required().lowercase(),
   // Optional top-level aliases for broker content/experience
-  content: Joi.string().max(2000).trim().optional(),
-  aboutUs: Joi.string().max(2000).trim().optional(),
-  experienceYears: Joi.number().integer().min(0).max(50).optional(),
-  experienceDescription: Joi.string().max(1000).trim().optional(),
+  content: Joi.string().max(2000).trim().optional().allow('', null),
+  aboutUs: Joi.string().max(2000).trim().optional().allow('', null),
+  experienceYears: Joi.number().integer().min(0).max(50).optional().allow(null),
+  experienceDescription: Joi.string().max(1000).trim().optional().allow('', null),
   achievements: Joi.array().items(Joi.string().max(200).trim()).optional(),
   certifications: Joi.array().items(Joi.string().max(200).trim()).optional(),
   brokerDetails: Joi.object({
     gender: Joi.string().valid('male', 'female', 'other').required(),
     firmName: Joi.string().required().min(2).max(100).trim(),
-    licenseNumber: Joi.string().optional().max(50).trim(),
+    licenseNumber: Joi.string().optional().allow('', null).max(50).trim(),
     address: Joi.string().optional().max(500).trim(),
     state: Joi.string().optional().max(50).trim(),
     city: Joi.string().optional().max(50).trim(),
@@ -53,11 +53,11 @@ export const completeProfileSchema = Joi.object({
       companyId: Joi.string().optional()
     }).optional(),
     // Optional content/about fields
-    aboutUs: Joi.string().max(2000).trim().optional(),
-    content: Joi.string().max(2000).trim().optional(),
+    aboutUs: Joi.string().max(2000).trim().optional().allow('', null),
+    content: Joi.string().max(2000).trim().optional().allow('', null),
     // Experience: full structure supported
-    experienceYears: Joi.number().integer().min(0).max(50).optional(),
-    experienceDescription: Joi.string().max(1000).trim().optional(),
+    experienceYears: Joi.number().integer().min(0).max(50).optional().allow(null),
+    experienceDescription: Joi.string().max(1000).trim().optional().allow('', null),
     achievements: Joi.array().items(Joi.string().max(200).trim()).optional(),
     certifications: Joi.array().items(Joi.string().max(200).trim()).optional()
   }).optional(),
