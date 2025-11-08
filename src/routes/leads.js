@@ -1,8 +1,8 @@
 import express from 'express';
-import { createLead, getLeads, getLeadById, getLeadMetrics, updateLeadVerification, getFullLeadsByBrokerId,  updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer } from '../controllers/leadController.js';
+import { createLead, getLeads, getLeadById, getLeadMetrics, updateLeadVerification, getFullLeadsByBrokerId,  updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer, updateRegionTransfer, deleteRegionTransfer } from '../controllers/leadController.js';
 import { validate } from '../middleware/validation.js';
 import { authenticate } from '../middleware/auth.js';
-import { createLeadSchema, updateLeadSchema, leadQuerySchema, transferAndNotesSchema, transferredLeadQuerySchema } from '../validations/lead.js';
+import { createLeadSchema, updateLeadSchema, leadQuerySchema, transferAndNotesSchema, transferredLeadQuerySchema, updateRegionTransferSchema } from '../validations/lead.js';
 
 const router = express.Router();
 
@@ -35,6 +35,13 @@ router.post('/:id/transfer-and-notes', authenticate, validate(transferAndNotesSc
 
 // Delete a specific transfer (requires toBrokerId and fromBroker via query or logged-in broker)
 router.delete('/:id/transfers/:toBrokerId', authenticate, deleteLeadTransfer);
+
+// Region transfer endpoints (create is handled by transfer-and-notes API)
+// Update region transfer for a lead
+router.put('/:id/region-transfers/:regionId', authenticate, validate(updateRegionTransferSchema), updateRegionTransfer);
+
+// Delete region transfer for a lead
+router.delete('/:id/region-transfers/:regionId', authenticate, deleteRegionTransfer);
 
 // Update lead verification status (Admin only)
 router.patch('/:id/verification', authenticate, updateLeadVerification);

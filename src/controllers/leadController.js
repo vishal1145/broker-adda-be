@@ -916,8 +916,9 @@ export const getTransferredLeads = async (req, res) => {
  */
 const calculatePercentageChange = (current, previous) => {
   if (previous === 0) {
-    // If previous is 0, return 0% (no meaningful percentage change)
-    return 0;
+    // If previous is 0 and current > 0, it's a 100% increase (new growth)
+    // If both are 0, return 0%
+    return current > 0 ? 100 : 0;
   }
   const change = ((current - previous) / previous) * 100;
   return Math.round(change * 10) / 10; // Round to 1 decimal place
@@ -1586,6 +1587,202 @@ export const deleteLeadTransfer = async (req, res) => {
 
     await lead.save();
     return successResponse(res, 'Transfer deleted successfully', { lead });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+// Update region transfer for a lead (matches existing transfer pattern)
+export const updateRegionTransfer = async (req, res) => {
+  try {
+    const { id, regionId } = req.params;
+    const { region, fromBroker } = req.body;
+
+    if (!region) {
+      return errorResponse(res, 'region is required', 400);
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(String(id))) {
+      return errorResponse(res, 'Invalid lead id', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(regionId))) {
+      return errorResponse(res, 'Invalid regionId parameter', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(region))) {
+      return errorResponse(res, 'Invalid region id', 400);
+    }
+
+    // Resolve fromBroker: explicit param takes precedence, else logged-in broker
+    let fromId = fromBroker || null;
+    if (!fromId && req.user && req.user.role === 'broker') {
+      try {
+        fromId = await findBrokerDetailIdByUserId(req.user._id);
+      } catch (_) { /* ignore */ }
+    }
+    if (!fromId) {
+      return errorResponse(res, 'fromBroker is required (or login as broker)', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(fromId))) {
+      return errorResponse(res, 'Invalid fromBroker id', 400);
+    }
+
+    // Validate new region exists
+    const Region = (await import('../models/Region.js')).default;
+    const regionExists = await Region.exists({ _id: region });
+    if (!regionExists) {
+      return errorResponse(res, 'Invalid region: region not found', 400);
+    }
+
+    const lead = await Lead.findById(id);
+    if (!lead) {
+      return errorResponse(res, 'Lead not found', 404);
+    }
+
+    // Find region transfer using same pattern as existing system: fromBroker + shareType + region
+    lead.transfers = Array.isArray(lead.transfers) ? lead.transfers : [];
+    const transferIndex = lead.transfers.findIndex(t => {
+      return t.shareType === 'region' && 
+             t.region &&
+             String(t.fromBroker) === String(fromId) && 
+             String(t.region) === String(regionId);
+    });
+
+    if (transferIndex === -1) {
+      return errorResponse(res, 'Region transfer not found for given fromBroker and region', 404);
+    }
+
+    // Check if new region transfer already exists (different from current one)
+    if (String(regionId) !== String(region)) {
+      const existingTransfer = lead.transfers.find(t => {
+        return t.shareType === 'region' && 
+               t.region &&
+               String(t.fromBroker) === String(fromId) && 
+               String(t.region) === String(region);
+      });
+
+      if (existingTransfer) {
+        return errorResponse(res, 'Region transfer already exists for this new region', 409);
+      }
+    }
+
+    // Update the transfer (same pattern as existing system)
+    lead.transfers[transferIndex].region = region;
+    lead.updatedAt = new Date();
+
+    await lead.save();
+
+    // Get updated lead with populated data (same as getLeadById)
+    const updatedLead = await Lead.findById(id)
+      .populate({
+        path: 'createdBy',
+        select: 'name email phone firmName brokerImage userId',
+        populate: {
+          path: 'userId',
+          select: '_id name email phone role'
+        }
+      })
+      .populate({ path: 'primaryRegion', select: 'name state city description' })
+      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({
+        path: 'transfers.fromBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.toBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.region',
+        select: 'name state city description'
+      })
+      .lean();
+
+    return successResponse(res, 'Region transfer updated successfully', { lead: updatedLead });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+// Delete region transfer for a lead (matches existing transfer pattern)
+export const deleteRegionTransfer = async (req, res) => {
+  try {
+    const { id, regionId } = req.params;
+    const { fromBroker } = req.query || {};
+
+    if (!mongoose.Types.ObjectId.isValid(String(id))) {
+      return errorResponse(res, 'Invalid lead id', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(regionId))) {
+      return errorResponse(res, 'Invalid regionId parameter', 400);
+    }
+
+    // Resolve fromBroker: explicit param takes precedence, else logged-in broker (same as deleteLeadTransfer)
+    let fromId = fromBroker || null;
+    if (!fromId && req.user && req.user.role === 'broker') {
+      try {
+        fromId = await findBrokerDetailIdByUserId(req.user._id);
+      } catch (_) { /* ignore */ }
+    }
+    if (!fromId) {
+      return errorResponse(res, 'fromBroker is required (or login as broker)', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(fromId))) {
+      return errorResponse(res, 'Invalid fromBroker id', 400);
+    }
+
+    const lead = await Lead.findById(id);
+    if (!lead) {
+      return errorResponse(res, 'Lead not found', 404);
+    }
+
+    // Delete using same pattern as existing system: fromBroker + shareType + region
+    const before = Array.isArray(lead.transfers) ? lead.transfers.length : 0;
+    lead.transfers = (lead.transfers || []).filter(t => {
+      // Match region transfer: shareType='region' AND fromBroker matches AND region matches
+      const isRegionTransfer = t.shareType === 'region' && t.region;
+      const regionMatch = String(t.region) === String(regionId);
+      const fromMatch = String(t.fromBroker) === String(fromId);
+      return !(isRegionTransfer && regionMatch && fromMatch);
+    });
+    const after = lead.transfers.length;
+
+    if (after === before) {
+      return errorResponse(res, 'Region transfer not found for given fromBroker and region', 404);
+    }
+
+    await lead.save();
+
+    // Get updated lead with populated data (same as getLeadById)
+    const updatedLead = await Lead.findById(id)
+      .populate({
+        path: 'createdBy',
+        select: 'name email phone firmName brokerImage userId',
+        populate: {
+          path: 'userId',
+          select: '_id name email phone role'
+        }
+      })
+      .populate({ path: 'primaryRegion', select: 'name state city description' })
+      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({
+        path: 'transfers.fromBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.toBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.region',
+        select: 'name state city description'
+      })
+      .lean();
+
+    return successResponse(res, 'Region transfer deleted successfully', { lead: updatedLead });
   } catch (error) {
     return serverError(res, error);
   }

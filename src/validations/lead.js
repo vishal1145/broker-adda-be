@@ -144,3 +144,8 @@ export const transferAndNotesSchema = Joi.object({
   notes: Joi.string().allow('', null).optional()
 }).unknown(true).or('toBrokers', 'transfers');
 
+export const updateRegionTransferSchema = Joi.object({
+  region: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required(),
+  fromBroker: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional()
+});
+
