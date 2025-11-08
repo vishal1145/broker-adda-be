@@ -966,7 +966,15 @@ export const getLeadMetrics = async (req, res) => {
     startOfPreviousPeriod.setHours(0, 0, 0, 0);
 
     // Resolve WHICH broker to use for transfer metrics (actor)
+    // Priority: brokerId > createdBy > logged-in user
     let actorBrokerId = brokerId || null;
+    
+    // If brokerId not provided, use createdBy if available
+    if (!actorBrokerId && createdByBrokerId) {
+      actorBrokerId = createdByBrokerId;
+    }
+    
+    // If still not set and user is logged in as broker, use their broker ID
     if (!actorBrokerId && req.user && req.user.role === 'broker') {
       try {
         const bd = await findBrokerDetailIdByUserId(req.user._id);
@@ -1031,19 +1039,29 @@ export const getLeadMetrics = async (req, res) => {
         { $group: { _id: null, avg: { $avg: '$budget' } } },
         { $project: { _id: 0, avg: 1 } }
       ]),
-      // Transfers to me
+      // Transfers to me (only individual transfers)
       actorBrokerId
         ? Lead.aggregate([
             { $unwind: '$transfers' },
-            { $match: { 'transfers.toBroker': new mongoose.Types.ObjectId(String(actorBrokerId)) } },
+            { 
+              $match: { 
+                'transfers.toBroker': new mongoose.Types.ObjectId(String(actorBrokerId)),
+                'transfers.shareType': 'individual'
+              } 
+            },
             { $count: 'count' }
           ])
         : Promise.resolve([]),
-      // Transfers by me
+      // Transfers by me (only individual transfers)
       actorBrokerId
         ? Lead.aggregate([
             { $unwind: '$transfers' },
-            { $match: { 'transfers.fromBroker': new mongoose.Types.ObjectId(String(actorBrokerId)) } },
+            { 
+              $match: { 
+                'transfers.fromBroker': new mongoose.Types.ObjectId(String(actorBrokerId)),
+                'transfers.shareType': 'individual'
+              } 
+            },
             { $count: 'count' }
           ])
         : Promise.resolve([]),
