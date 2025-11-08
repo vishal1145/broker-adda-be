@@ -636,28 +636,39 @@ export const completeProfile = async (req, res) => {
         }
 
         // Handle file deletions and uploads
-        // Process kycDocs deletions (if explicitly set to empty/null in request body)
+        brokerDetail.kycDocs = brokerDetail.kycDocs || {};
+        
+        // Process kycDocs deletions
+        // If kycDocs is provided in request body, check for explicit deletions
         if (requestKycDocs !== undefined) {
-          brokerDetail.kycDocs = brokerDetail.kycDocs || {};
-          if (requestKycDocs.aadhar === '' || requestKycDocs.aadhar === null) {
-            brokerDetail.kycDocs.aadhar = null;
-          }
-          if (requestKycDocs.pan === '' || requestKycDocs.pan === null) {
-            brokerDetail.kycDocs.pan = null;
-          }
-          if (requestKycDocs.gst === '' || requestKycDocs.gst === null) {
-            brokerDetail.kycDocs.gst = null;
-          }
-          if (requestKycDocs.brokerLicense === '' || requestKycDocs.brokerLicense === null) {
-            brokerDetail.kycDocs.brokerLicense = null;
-          }
-          if (requestKycDocs.companyId === '' || requestKycDocs.companyId === null) {
-            brokerDetail.kycDocs.companyId = null;
-          }
+          const kycDocFields = ['aadhar', 'pan', 'gst', 'brokerLicense', 'companyId'];
+          kycDocFields.forEach(field => {
+            // Delete if explicitly set to empty/null in request body
+            if (requestKycDocs[field] === '' || requestKycDocs[field] === null) {
+              brokerDetail.kycDocs[field] = null;
+            }
+          });
         }
+        
+        // Handle file deletions when files are removed from multipart form
+        // If a file field exists in DB but is NOT in req.files, delete it (user removed it from form)
+        // This handles the case where user removes file fields from the form
+        const kycDocFields = ['aadhar', 'pan', 'gst', 'brokerLicense', 'companyId'];
+        kycDocFields.forEach(field => {
+          // If field exists in DB but file is not uploaded, delete it
+          // Note: files might be undefined or empty object if no files are uploaded
+          if (brokerDetail.kycDocs[field] && (!files || !files[field])) {
+            brokerDetail.kycDocs[field] = null;
+          }
+        });
 
-        // Handle brokerImage deletion (if explicitly set to empty/null in request body)
+        // Handle brokerImage deletion
+        // Delete if explicitly set to empty/null in request body
         if (requestBrokerImage === '' || requestBrokerImage === null) {
+          brokerDetail.brokerImage = null;
+        }
+        // Delete if brokerImage exists in DB but file is not uploaded (user removed it from form)
+        else if (brokerDetail.brokerImage && (!files || !files.brokerImage)) {
           brokerDetail.brokerImage = null;
         }
 
