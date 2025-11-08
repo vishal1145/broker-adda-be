@@ -591,8 +591,11 @@ export const completeProfile = async (req, res) => {
       const brokerDetail = await BrokerDetail.findOne({ userId: user._id });
       
       if (brokerDetail) {
-        // Update existing broker details with user info
-        Object.assign(brokerDetail, roleSpecificData.brokerDetails);
+        // Extract kycDocs and brokerImage before Object.assign to handle them separately
+        const { kycDocs: requestKycDocs, brokerImage: requestBrokerImage, ...brokerDetailsWithoutFiles } = roleSpecificData.brokerDetails || {};
+        
+        // Update existing broker details with user info (excluding kycDocs and brokerImage)
+        Object.assign(brokerDetail, brokerDetailsWithoutFiles);
         brokerDetail.name = name;
         brokerDetail.email = email;
         brokerDetail.phone = phone;
@@ -630,6 +633,32 @@ export const completeProfile = async (req, res) => {
           if (experienceDescription || bd.experienceDescription) brokerDetail.experience.description = (experienceDescription || bd.experienceDescription);
           if (Array.isArray(achievements) || Array.isArray(bd.achievements)) brokerDetail.experience.achievements = (achievements || bd.achievements || []);
           if (Array.isArray(certifications) || Array.isArray(bd.certifications)) brokerDetail.experience.certifications = (certifications || bd.certifications || []);
+        }
+
+        // Handle file deletions and uploads
+        // Process kycDocs deletions (if explicitly set to empty/null in request body)
+        if (requestKycDocs !== undefined) {
+          brokerDetail.kycDocs = brokerDetail.kycDocs || {};
+          if (requestKycDocs.aadhar === '' || requestKycDocs.aadhar === null) {
+            brokerDetail.kycDocs.aadhar = null;
+          }
+          if (requestKycDocs.pan === '' || requestKycDocs.pan === null) {
+            brokerDetail.kycDocs.pan = null;
+          }
+          if (requestKycDocs.gst === '' || requestKycDocs.gst === null) {
+            brokerDetail.kycDocs.gst = null;
+          }
+          if (requestKycDocs.brokerLicense === '' || requestKycDocs.brokerLicense === null) {
+            brokerDetail.kycDocs.brokerLicense = null;
+          }
+          if (requestKycDocs.companyId === '' || requestKycDocs.companyId === null) {
+            brokerDetail.kycDocs.companyId = null;
+          }
+        }
+
+        // Handle brokerImage deletion (if explicitly set to empty/null in request body)
+        if (requestBrokerImage === '' || requestBrokerImage === null) {
+          brokerDetail.brokerImage = null;
         }
 
         // Process uploaded files if any
@@ -713,6 +742,9 @@ export const completeProfile = async (req, res) => {
 
         // Process uploaded files if any
         if (files) {
+          // Initialize kycDocs object if it doesn't exist
+          newBrokerDetail.kycDocs = newBrokerDetail.kycDocs || {};
+          
           // Process kycDocs (PDF files) - update existing kycDocs field
           if (files.aadhar) {
             newBrokerDetail.kycDocs.aadhar = getFileUrl(req, files.aadhar[0].path);
@@ -766,6 +798,13 @@ export const completeProfile = async (req, res) => {
         customerDetail.name = name;
         customerDetail.email = email;
         customerDetail.phone = phone;
+
+        // Handle customerImage deletion (if explicitly set to empty/null in request body)
+        const cdImages = roleSpecificData.customerDetails?.images;
+        if (cdImages?.customerImage === '' || cdImages?.customerImage === null) {
+          customerDetail.images = customerDetail.images || {};
+          customerDetail.images.customerImage = null;
+        }
 
         // Process uploaded files if any
         if (files && files.customerImage) {
