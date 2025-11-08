@@ -23,7 +23,10 @@ export const completeProfileSchema = Joi.object({
     specializations: Joi.array().items(
       Joi.string().max(100).trim()
     ).optional(),
-    website: Joi.string().uri().optional().max(200).trim(),
+    website: Joi.alternatives().try(
+      Joi.string().uri().max(200).trim(),
+      Joi.string().allow('', null).max(200).trim()
+    ).optional(),
     socialMedia: Joi.object({
       linkedin: Joi.alternatives().try(
         Joi.string().uri().max(200).trim(),
