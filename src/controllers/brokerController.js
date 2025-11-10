@@ -303,7 +303,7 @@ export const getBrokerById = async (req, res) => {
     // Find broker by userId instead of _id
     const broker = await BrokerDetail.findOne({ userId: id })
       .populate('region', 'name description city state centerLocation radius')
-      .populate('userId', 'name email phone status');
+      .populate('userId', 'name email phone status emailNotification smsNotification pushNotification');
 
     const brokerSubscription = await Subscription.findOne({ user: new mongoose.Types.ObjectId(id), endDate: { $gt: new Date() } });
 
