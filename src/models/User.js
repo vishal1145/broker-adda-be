@@ -57,13 +57,17 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
-  pushNotificationsEnabled: {
+  emailNotification: {
     type: Boolean,
     default: true
   },
-  notificationsDisabledAt: {
-    type: Date,
-    default: null
+  smsNotification: {
+    type: Boolean,
+    default: true
+  },
+  pushNotification: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true

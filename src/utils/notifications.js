@@ -3,11 +3,105 @@ import BrokerDetail from '../models/BrokerDetail.js';
 import Property from '../models/Property.js';
 import User from '../models/User.js';
 import Region from '../models/Region.js';
+import Lead from '../models/Lead.js';
+import Message from '../models/Message.js';
 
-/**
- * Helper function to get userId from brokerId or propertyId
- * Always ensures we use userId, not brokerId or propertyId
- */
+
+const sendEmailNotification = async (userEmail, title, message) => {
+  try {
+    // Import nodemailer dynamically
+    const nodemailer = await import('nodemailer');
+    
+    // Configure email transporter (you can move this to env variables)
+    const transporter = nodemailer.default.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: process.env.SMTP_PORT || 587,
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      }
+    });
+
+    // Only send if SMTP is configured
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      console.log('Email not sent: SMTP not configured');
+      return false;
+    }
+
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: userEmail,
+      subject: title,
+      text: message,
+      html: `<p>${message}</p>`
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Error sending email notification:', error);
+    return false;
+  }
+};
+
+
+const sendSMSNotification = async (userPhone, message) => {
+  try {
+    // TODO: Integrate with SMS service provider (Twilio, AWS SNS, etc.)
+    // For now, just log it
+    console.log(`SMS to ${userPhone}: ${message}`);
+    
+    // Example with Twilio (uncomment and configure):
+    // const twilio = require('twilio');
+    // const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    // await client.messages.create({
+    //   body: message,
+    //   from: process.env.TWILIO_PHONE_NUMBER,
+    //   to: userPhone
+    // });
+    
+    return true;
+  } catch (error) {
+    console.error('Error sending SMS notification:', error);
+    return false;
+  }
+};
+
+
+const sendPushNotification = async (userId, title, message, metadata = {}) => {
+  try {
+  
+    console.log(`Push notification to user ${userId}: ${title} - ${message}`);
+    
+    // Example with Firebase Cloud Messaging (uncomment and configure):
+    // const admin = require('firebase-admin');
+    // const message = {
+    //   notification: {
+    //     title: title,
+    //     body: message
+    //   },
+    //   data: metadata,
+    //   token: userFCMToken // Get from user's device tokens stored in database
+    // };
+    // await admin.messaging().send(message);
+    
+    // Example with OneSignal (uncomment and configure):
+    // const OneSignal = require('onesignal-node');
+    // const client = new OneSignal.Client(process.env.ONESIGNAL_APP_ID, process.env.ONESIGNAL_REST_API_KEY);
+    // await client.createNotification({
+    //   contents: { en: message },
+    //   headings: { en: title },
+    //   include_external_user_ids: [userId.toString()]
+    // });
+    
+    return true;
+  } catch (error) {
+    console.error('Error sending push notification:', error);
+    return false;
+  }
+};
+
+
 export const getUserIdFromBrokerOrProperty = async (brokerId = null, propertyId = null) => {
   try {
     if (brokerId) {
@@ -37,6 +131,7 @@ export const getUserIdFromBrokerOrProperty = async (brokerId = null, propertyId 
 /**
  * Helper function to create notifications
  * IMPORTANT: Always use userId, never brokerId or propertyId directly
+ * This function saves notification to database AND sends email/SMS based on user preferences
  * @param {Object} options - Notification options
  * @param {String|ObjectId} options.userId - User ID who will receive the notification (REQUIRED - always use userId)
  * @param {String} options.type - Notification type: 'lead', 'property', 'message', 'system', 'transfer', 'approval', 'other'
@@ -65,6 +160,9 @@ export const createNotification = async ({
       return null;
     }
 
+    // Get user preferences for email/SMS notifications
+    const user = await User.findById(userId).select('email phone emailNotification smsNotification pushNotification');
+    
     const notification = new Notification({
       userId,
       type,
@@ -77,80 +175,39 @@ export const createNotification = async ({
     });
 
     await notification.save();
+
+    // Send email if enabled and user has email
+    if (user && user.emailNotification && user.email) {
+      try {
+        await sendEmailNotification(user.email, title, message);
+      } catch (error) {
+        console.error('Error sending email notification:', error);
+      }
+    }
+
+    // Send SMS if enabled and user has phone
+    if (user && user.smsNotification && user.phone) {
+      try {
+        await sendSMSNotification(user.phone, message);
+      } catch (error) {
+        console.error('Error sending SMS notification:', error);
+      }
+    }
+
+    // Send push notification if enabled
+    if (user && user.pushNotification) {
+      try {
+        await sendPushNotification(userId, title, message, metadata);
+      } catch (error) {
+        console.error('Error sending push notification:', error);
+      }
+    }
+
     return notification;
   } catch (error) {
     console.error('Error creating notification:', error);
     // Don't throw - notifications shouldn't break main flow
     return null;
-  }
-};
-
-/**
- * Create notification for a broker by BrokerDetail ID
- * Finds the broker's userId and creates notification
- * IMPORTANT: Always extracts userId from broker, never uses brokerId directly
- */
-export const createNotificationForBroker = async (brokerDetailId, notificationData) => {
-  try {
-    const broker = await BrokerDetail.findById(brokerDetailId).select('userId');
-    if (!broker || !broker.userId) {
-      console.warn(`BrokerDetail ${brokerDetailId} not found or has no userId`);
-      return null;
-    }
-
-    // Ensure we extract the actual userId, not brokerId
-    // Handle both populated and non-populated cases
-    const userId = broker.userId._id || broker.userId;
-    
-    if (!userId) {
-      console.error(`BrokerDetail ${brokerDetailId} has invalid userId`);
-      return null;
-    }
-
-    return await createNotification({
-      ...notificationData,
-      userId: userId
-    });
-  } catch (error) {
-    console.error('Error creating notification for broker:', error);
-    return null;
-  }
-};
-
-/**
- * Create notifications for multiple brokers
- * IMPORTANT: Always extracts userId from each broker, never uses brokerId directly
- */
-export const createNotificationsForBrokers = async (brokerDetailIds, notificationData) => {
-  try {
-    const brokers = await BrokerDetail.find({
-      _id: { $in: brokerDetailIds }
-    }).select('userId');
-
-    const notifications = await Promise.all(
-      brokers
-        .filter(b => b.userId)
-        .map(broker => {
-          // Ensure we extract the actual userId, not brokerId
-          // Handle both populated and non-populated cases
-          const userId = broker.userId._id || broker.userId;
-          
-          if (!userId) {
-            console.warn(`BrokerDetail ${broker._id} has invalid userId`);
-            return null;
-          }
-
-          return createNotification({
-            ...notificationData,
-            userId: userId
-          });
-        })
-    );
-
-    return notifications.filter(n => n !== null);
-  } catch (error) {
-    console.error('Error creating notifications for brokers:', error);
-    return [];
   }
 };
 
@@ -530,4 +587,3 @@ export const createTransferNotification = async (toBrokerId, fromBrokerId, lead,
     return null;
   }
 };
-

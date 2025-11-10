@@ -5,7 +5,7 @@ import Property from '../models/Property.js';
 import BrokerDetail from '../models/BrokerDetail.js';
 import CustomerDetail from '../models/CustomerDetail.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
-import mongoose from 'mongoose';
+import { createNotification } from '../utils/notifications.js';
 
 /**
  * Get all notifications for the authenticated user
@@ -25,23 +25,8 @@ export const getAllNotifications = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Check if user has push notifications enabled and get disabled timestamp
-    const user = await User.findById(userId).select('pushNotificationsEnabled notificationsDisabledAt');
-    
     // Build query
     const query = { userId };
-    
-    // If notifications are disabled, only show notifications created BEFORE the disable time
-    if (user && !user.pushNotificationsEnabled) {
-      if (user.notificationsDisabledAt) {
-        // Use the saved timestamp - show only notifications created before disable time
-        query.createdAt = { $lt: user.notificationsDisabledAt };
-      } else {
-        // Edge case: disabled but no timestamp (legacy data or inconsistency)
-        // Use current time to hide future notifications but show existing ones
-        query.createdAt = { $lt: new Date() };
-      }
-    }
 
     if (isRead !== undefined) {
       query.isRead = isRead === 'true';
@@ -138,7 +123,6 @@ export const getAllNotifications = async (req, res) => {
         hasPrevPage: parseInt(page) > 1
       },
       unreadCount,
-      pushNotificationsEnabled: user.pushNotificationsEnabled,
       countsByType: countsByType.reduce((acc, item) => {
         acc[item._id] = {
           total: item.count,
@@ -377,41 +361,13 @@ export const adminGetAllNotifications = async (req, res) => {
     const query = {};
 
     if (userId) {
-      // Validate userId is a valid ObjectId
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
-        return errorResponse(res, 'Invalid userId format', 400);
-      }
-      
-      query.userId = new mongoose.Types.ObjectId(userId);
-      
-      // Check if this user has notifications disabled and apply filter
-      const targetUser = await User.findById(userId).select('pushNotificationsEnabled notificationsDisabledAt');
-      if (targetUser && !targetUser.pushNotificationsEnabled && targetUser.notificationsDisabledAt) {
-        // Only show notifications created BEFORE the disable time
-        if (days) {
-          const daysAgo = new Date();
-          daysAgo.setDate(daysAgo.getDate() - parseInt(days));
-          // Combine both filters: after daysAgo AND before disabledAt
-          query.createdAt = { 
-            $gte: daysAgo,
-            $lt: targetUser.notificationsDisabledAt
-          };
-        } else {
-          query.createdAt = { $lt: targetUser.notificationsDisabledAt };
-        }
-      } else if (days) {
-        const daysAgo = new Date();
-        daysAgo.setDate(daysAgo.getDate() - parseInt(days));
-        query.createdAt = { $gte: daysAgo };
-      }
-    } else {
-      // If no specific userId, we need to filter per user
-      // This is more complex - we'll handle it after fetching
-      if (days) {
-        const daysAgo = new Date();
-        daysAgo.setDate(daysAgo.getDate() - parseInt(days));
-        query.createdAt = { $gte: daysAgo };
-      }
+      query.userId = userId;
+    }
+
+    if (days) {
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - parseInt(days));
+      query.createdAt = { $gte: daysAgo };
     }
 
     if (isRead !== undefined) {
@@ -434,49 +390,6 @@ export const adminGetAllNotifications = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
-
-    // If no specific userId, filter notifications based on each user's disabledAt timestamp
-    if (!userId) {
-      // Get all unique user IDs from notifications, filtering out null/invalid values
-      const userIds = [...new Set(
-        notifications
-          .map(n => {
-            const uid = n.userId?._id || n.userId;
-            return uid ? String(uid) : null;
-          })
-          .filter(id => id && mongoose.Types.ObjectId.isValid(id))
-      )];
-      
-      // Get disabledAt timestamps for all users (only if we have valid IDs)
-      const usersWithDisabledAt = userIds.length > 0 ? await User.find({ 
-        _id: { $in: userIds.map(id => new mongoose.Types.ObjectId(id)) },
-        pushNotificationsEnabled: false,
-        notificationsDisabledAt: { $exists: true, $ne: null }
-      }).select('_id notificationsDisabledAt').lean() : [];
-      
-      const userDisabledAtMap = new Map();
-      usersWithDisabledAt.forEach(u => {
-        userDisabledAtMap.set(String(u._id), u.notificationsDisabledAt);
-      });
-      
-      // Filter notifications: only show those created BEFORE the user's disabledAt time
-      notifications = notifications.filter(notification => {
-        const uid = notification.userId?._id || notification.userId;
-        if (!uid) {
-          // If notification has no userId, show it (shouldn't happen, but handle gracefully)
-          return true;
-        }
-        const notifUserId = String(uid);
-        const disabledAt = userDisabledAtMap.get(notifUserId);
-        
-        if (disabledAt) {
-          // Only show notifications created before disabledAt
-          return new Date(notification.createdAt) < new Date(disabledAt);
-        }
-        // If user doesn't have disabledAt, show all notifications
-        return true;
-      });
-    }
 
     // Populate only essential related entity fields
     notifications = await Promise.all(notifications.map(async (notification) => {
@@ -643,11 +556,7 @@ export const adminGetRecentActivity = async (req, res) => {
     };
 
     if (userId) {
-      // Validate userId is a valid ObjectId
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
-        return errorResponse(res, 'Invalid userId format', 400);
-      }
-      query.userId = new mongoose.Types.ObjectId(userId);
+      query.userId = userId;
     }
 
     if (type) {
@@ -815,11 +724,7 @@ export const adminMarkAllAsRead = async (req, res) => {
     const query = { isRead: false };
 
     if (userId) {
-      // Validate userId is a valid ObjectId
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
-        return errorResponse(res, 'Invalid userId format', 400);
-      }
-      query.userId = new mongoose.Types.ObjectId(userId);
+      query.userId = userId;
     }
 
     if (type) {
@@ -857,42 +762,76 @@ export const adminMarkAllAsRead = async (req, res) => {
   }
 };
 
-export const togglePushNotifications = async (req, res) => {
+/**
+ * Update notification preferences (emailNotification, smsNotification, pushNotification)
+ * Sends confirmation notification via enabled channels
+ */
+export const updateNotificationPreferences = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { enable } = req.body; // boolean: true to enable, false to disable
+    const { emailNotification, smsNotification, pushNotification } = req.body;
 
-    if (typeof enable !== 'boolean') {
-      return errorResponse(res, 'Boolean value "enable" is required', 400);
-    }
-
-    // Prepare update object
-    const update = { pushNotificationsEnabled: enable };
+    // Get current user preferences
+    const user = await User.findById(userId).select('email phone emailNotification smsNotification pushNotification');
     
-    if (!enable) {
-      // When disabling: set the timestamp to current time
-      update.notificationsDisabledAt = new Date();
-    } else {
-      // When enabling: clear the timestamp (set to null)
-      update.notificationsDisabledAt = null;
-    }
-
-    const user = await User.findByIdAndUpdate(
-      userId,
-      update,
-      { new: true, select: 'pushNotificationsEnabled notificationsDisabledAt name email' }
-    );
-
     if (!user) {
       return errorResponse(res, 'User not found', 404);
     }
 
-    return successResponse(res, `Push notifications ${enable ? 'enabled' : 'disabled'} successfully`, {
-      pushNotificationsEnabled: user.pushNotificationsEnabled,
-      notificationsDisabledAt: user.notificationsDisabledAt,
-      message: enable 
-        ? 'Notifications will now be visible' 
-        : 'Notifications are now hidden'
+    // Track what changed
+    const changes = [];
+    const updateData = {};
+
+    if (emailNotification !== undefined && typeof emailNotification === 'boolean') {
+      if (user.emailNotification !== emailNotification) {
+        updateData.emailNotification = emailNotification;
+        changes.push(`Email notifications ${emailNotification ? 'enabled' : 'disabled'}`);
+      }
+    }
+
+    if (smsNotification !== undefined && typeof smsNotification === 'boolean') {
+      if (user.smsNotification !== smsNotification) {
+        updateData.smsNotification = smsNotification;
+        changes.push(`SMS notifications ${smsNotification ? 'enabled' : 'disabled'}`);
+      }
+    }
+
+    if (pushNotification !== undefined && typeof pushNotification === 'boolean') {
+      if (user.pushNotification !== pushNotification) {
+        updateData.pushNotification = pushNotification;
+        changes.push(`Push notifications ${pushNotification ? 'enabled' : 'disabled'}`);
+      }
+    }
+
+    // If no changes, return early
+    if (Object.keys(updateData).length === 0) {
+      return successResponse(res, 'No changes detected', {
+        preferences: {
+          emailNotification: user.emailNotification,
+          smsNotification: user.smsNotification,
+          pushNotification: user.pushNotification
+        }
+      });
+    }
+
+    // Update user preferences
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true, select: 'email phone emailNotification smsNotification pushNotification name' }
+    );
+
+    // Note: We do NOT send email/SMS confirmation when preferences are updated
+    // Email/SMS are only sent for actual notifications (lead, property, message, etc.)
+    // Preference updates are silent - just update the database
+
+    return successResponse(res, 'Notification preferences updated successfully', {
+      preferences: {
+        emailNotification: updatedUser.emailNotification,
+        smsNotification: updatedUser.smsNotification,
+        pushNotification: updatedUser.pushNotification
+      },
+      changes: changes
     });
 
   } catch (error) {

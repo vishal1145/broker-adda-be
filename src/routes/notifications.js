@@ -8,7 +8,7 @@ import {
   adminGetAllNotifications,
   adminGetRecentActivity,
   adminMarkAllAsRead,
-  togglePushNotifications
+  updateNotificationPreferences
 } from '../controllers/notificationController.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 
@@ -51,11 +51,10 @@ router.get('/admin/recent', authorize('admin'), adminGetRecentActivity);
 // Example: /api/notifications/admin/read-all?type=lead&days=7
 router.patch('/admin/read-all', authorize('admin'), adminMarkAllAsRead);
 
-// Toggle push notifications on/off for authenticated user
-// Body: { enable: true/false }
-// If OFF: Notifications are hidden (not shown in GET API)
-// If ON: All notifications are shown
-router.patch('/push/toggle', togglePushNotifications);
+// Update notification preferences (emailNotification, smsNotification, pushNotification)
+// Body: { emailNotification: true/false, smsNotification: true/false, pushNotification: true/false }
+// Sends confirmation notification via enabled channels
+router.patch('/preferences', updateNotificationPreferences);
 
 export default router;
 
