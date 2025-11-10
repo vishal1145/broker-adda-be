@@ -5,6 +5,7 @@ import Region from '../models/Region.js';
 import SavedProperty from '../models/SavedProperty.js';
 import Notification from '../models/Notification.js';
 import PropertyRating from '../models/PropertyRating.js';
+import Property from '../models/Property.js';
 import BrokerRating from '../models/BrokerRating.js';
 import Payment from '../models/Payment.js';
 import Chat from '../models/Chat.js';
@@ -1188,8 +1189,32 @@ export const deleteAccount = async (req, res) => {
           }
         }
         
-        // Delete leads created by this broker
+        // Delete all properties owned by this broker
+        await Property.deleteMany({ broker: brokerDetail._id });
+        
+        // Delete leads created by this broker (admin-created leads are excluded automatically
+        // since their createdBy is an admin user ID, not a broker ID)
         await Lead.deleteMany({ createdBy: brokerDetail._id });
+        
+        // Delete leads where this broker appears in transfers (fromBroker or toBroker)
+        // Exclude admin-created leads - get admin user IDs first
+        const adminUsers = await User.find({ role: 'admin' }).select('_id').lean();
+        const adminUserIds = adminUsers.map(u => u._id);
+        
+        // Delete leads with transfers involving this broker, but exclude admin-created leads
+        await Lead.deleteMany({
+          $and: [
+            {
+              $or: [
+                { 'transfers.fromBroker': brokerDetail._id },
+                { 'transfers.toBroker': brokerDetail._id }
+              ]
+            },
+            {
+              createdBy: { $nin: adminUserIds }
+            }
+          ]
+        });
         
         // Delete broker ratings (ratings given to this broker)
         await BrokerRating.deleteMany({ brokerId: brokerDetail._id });
