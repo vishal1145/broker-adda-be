@@ -117,9 +117,9 @@ export const updatePropertySchema = Joi.object({
   features:     Joi.array().items(Joi.string().trim()).optional(),
   locationBenefits: Joi.array().items(Joi.string().trim()).optional(),
 
-  // Media
-  images:       Joi.array().items(Joi.string().uri().allow("")).optional(),
-  videos:       Joi.array().items(Joi.string().uri().allow("")).optional(),
+  // Media - allow valid URIs, empty strings, or null (will be filtered in controller)
+  images:       Joi.array().items(Joi.alternatives().try(Joi.string().uri(), Joi.string().allow(""), Joi.valid(null))).optional(),
+  videos:       Joi.array().items(Joi.alternatives().try(Joi.string().uri(), Joi.string().allow(""), Joi.valid(null))).optional(),
 
   // Ownership
   broker:       objectId.optional(),   // BrokerDetail _id

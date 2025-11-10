@@ -543,6 +543,9 @@ export const updateProperty = async (req, res) => {
       return res.status(404).json({ success: false, message: "Property not found" });
     }
 
+    // Store original status for notification check (before any updates)
+    const originalStatus = existingProperty.status;
+
     // Authorization check: Allow update if user is admin OR if broker owns the property
     if (req.user?.role !== "admin") {
       if (req.user?.role === "broker") {
@@ -591,37 +594,79 @@ export const updateProperty = async (req, res) => {
     const uploadedImages = rawImages.map(f => getFileUrl(req, f.path));
     const uploadedVideos = rawVideos.map(f => getFileUrl(req, f.path));
 
-    // Merge uploaded files with body-provided URLs
-    const bodyImages = Array.isArray(updateData.images) ? updateData.images : (updateData.images ? [updateData.images] : []);
-    const bodyVideos = Array.isArray(updateData.videos) ? updateData.videos : (updateData.videos ? [updateData.videos] : []);
-
-    // If new files uploaded, merge them with existing or replace
-    if (uploadedImages.length > 0 || uploadedVideos.length > 0) {
-      updateData.images = [...bodyImages, ...uploadedImages];
-      updateData.videos = [...bodyVideos, ...uploadedVideos];
-    } else if (updateData.images !== undefined || updateData.videos !== undefined) {
-      // If explicitly provided, use them
-      if (updateData.images !== undefined) {
-        updateData.images = Array.isArray(updateData.images) ? updateData.images : [updateData.images];
-      }
-      if (updateData.videos !== undefined) {
-        updateData.videos = Array.isArray(updateData.videos) ? updateData.videos : [updateData.videos];
-      }
+    // Handle images: if explicitly provided in body, use that as base (even if empty array for removal)
+    // Then add any newly uploaded files to it
+    if (updateData.images !== undefined) {
+      // Convert to array if single value
+      const bodyImages = Array.isArray(updateData.images) 
+        ? updateData.images 
+        : (updateData.images ? [updateData.images] : []);
+      // Filter out null, undefined, empty strings, and whitespace-only strings
+      const cleanBodyImages = bodyImages.filter(img => {
+        if (img === null || img === undefined) return false;
+        if (typeof img === 'string') {
+          return img.trim() !== '';
+        }
+        return true; // Keep non-string values (shouldn't happen, but be safe)
+      });
+      // Add uploaded images to the body-provided images
+      // If cleanBodyImages is empty and no uploads, this will be empty array (for deletion)
+      updateData.images = cleanBodyImages.length > 0 || uploadedImages.length > 0
+        ? [...cleanBodyImages, ...uploadedImages]
+        : []; // Explicitly set to empty array if both are empty
+    } else if (uploadedImages.length > 0) {
+      // If images not provided in body but files uploaded, merge with existing
+      updateData.images = [...(existingProperty.images || []), ...uploadedImages];
     }
+    // If images is undefined and no uploads, don't modify existing images
 
-    // Update the property
-    const updatedProperty = await Property.findByIdAndUpdate(
-      id,
-      { ...updateData, updatedAt: new Date() },
-      { new: true, runValidators: true }
-    )
+    // Handle videos: if explicitly provided in body, use that as base (even if empty array for removal)
+    // Then add any newly uploaded files to it
+    if (updateData.videos !== undefined) {
+      // Convert to array if single value
+      const bodyVideos = Array.isArray(updateData.videos) 
+        ? updateData.videos 
+        : (updateData.videos ? [updateData.videos] : []);
+      // Filter out null, undefined, empty strings, and whitespace-only strings
+      const cleanBodyVideos = bodyVideos.filter(vid => {
+        if (vid === null || vid === undefined) return false;
+        if (typeof vid === 'string') {
+          return vid.trim() !== '';
+        }
+        return true; // Keep non-string values (shouldn't happen, but be safe)
+      });
+      // Add uploaded videos to the body-provided videos
+      // If cleanBodyVideos is empty and no uploads, this will be empty array (for deletion)
+      updateData.videos = cleanBodyVideos.length > 0 || uploadedVideos.length > 0
+        ? [...cleanBodyVideos, ...uploadedVideos]
+        : []; // Explicitly set to empty array if both are empty
+    } else if (uploadedVideos.length > 0) {
+      // If videos not provided in body but files uploaded, merge with existing
+      updateData.videos = [...(existingProperty.videos || []), ...uploadedVideos];
+    }
+    // If videos is undefined and no uploads, don't modify existing videos
+
+    // Apply updates to the existing property document
+    // Using save() method is more reliable for empty arrays than findByIdAndUpdate
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] !== undefined) {
+        existingProperty[key] = updateData[key];
+      }
+    });
+    existingProperty.updatedAt = new Date();
+
+    // Save the updated property
+    await existingProperty.save({ runValidators: true });
+
+    // Fetch the updated property with populated fields
+    const updatedProperty = await Property.findById(id)
       .populate("broker", "name email phone firmName licenseNumber status brokerImage")
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
     // Create notification if status changed
     // Use userId from token (req.user._id)
-    if (updateData.status && updateData.status !== existingProperty.status) {
+    if (updateData.status && updateData.status !== originalStatus) {
       try {
         if (req.user?._id) {
           await createPropertyNotification(req.user._id, 'updated', updatedProperty, req.user);
