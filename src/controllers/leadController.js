@@ -400,6 +400,21 @@ export const getLeads = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
+    // First get original createdBy ObjectIds before populate
+    const leadDocs = await Lead.find(filter)
+      .select('_id createdBy')
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+    
+    const createdByIdsMap = new Map();
+    leadDocs.forEach(doc => {
+      if (doc.createdBy) {
+        createdByIdsMap.set(doc._id.toString(), doc.createdBy);
+      }
+    });
+
     const [items, total] = await Promise.all([
       Lead.find(filter)
         .sort(sort)
@@ -428,6 +443,53 @@ export const getLeads = async (req, res) => {
         .lean(),
       Lead.countDocuments(filter)
     ]);
+
+    // Handle admin-created leads: find leads with null createdBy and populate from User
+    const adminCreatedLeadIds = [];
+    items.forEach((lead, index) => {
+      if (!lead.createdBy && createdByIdsMap.has(lead._id.toString())) {
+        adminCreatedLeadIds.push({ index, createdById: createdByIdsMap.get(lead._id.toString()) });
+      }
+    });
+
+    // Fetch admin users for leads with null createdBy (only if they exist as admin users)
+    if (adminCreatedLeadIds.length > 0) {
+      const adminUserIds = adminCreatedLeadIds.map(item => item.createdById);
+      // Only fetch users that are confirmed to be admins
+      const adminUsers = await User.find({ 
+        _id: { $in: adminUserIds }, 
+        role: 'admin' 
+      })
+        .select('_id name email phone role')
+        .lean();
+      
+      const adminUsersMap = new Map();
+      adminUsers.forEach(admin => {
+        adminUsersMap.set(admin._id.toString(), admin);
+      });
+
+      // Assign admin data to leads only if confirmed as admin user
+      adminCreatedLeadIds.forEach(({ index, createdById }) => {
+        const adminUser = adminUsersMap.get(createdById.toString());
+        if (adminUser && adminUser.role === 'admin') {
+          items[index].createdBy = {
+            _id: adminUser._id,
+            name: adminUser.name || 'Admin',
+            email: adminUser.email || null,
+            phone: adminUser.phone || null,
+            firmName: null,
+            brokerImage: null,
+            userId: {
+              _id: adminUser._id,
+              name: adminUser.name || 'Admin',
+              email: adminUser.email || null,
+              phone: adminUser.phone || null,
+              role: 'admin'
+            }
+          };
+        }
+      });
+    }
 
     // Convert brokerImage paths to URLs
     const itemsWithImageUrls = (items || []).map(item => {
@@ -479,6 +541,11 @@ export const getLeads = async (req, res) => {
 export const getLeadById = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // First get the original createdBy ObjectId before populate
+    const leadDoc = await Lead.findById(id).select('createdBy').lean();
+    if (!leadDoc) return errorResponse(res, 'Lead not found', 404);
+    
     const lead = await Lead.findById(id)
       .populate({
         path: 'createdBy',
@@ -503,6 +570,35 @@ export const getLeadById = async (req, res) => {
       .lean();
 
     if (!lead) return errorResponse(res, 'Lead not found', 404);
+
+    // Handle admin-created leads: if createdBy is null (populate failed), check if it's an admin user
+    if (!lead.createdBy && leadDoc.createdBy) {
+      // Only populate from User table if the ID exists as an admin user
+      const adminUser = await User.findOne({ 
+        _id: leadDoc.createdBy, 
+        role: 'admin' 
+      }).select('_id name email phone role').lean();
+      
+      if (adminUser) {
+        // For admin, structure matches broker format
+        // Top-level fields represent admin user data (no separate BrokerDetail)
+        lead.createdBy = {
+          _id: adminUser._id,
+          name: adminUser.name || 'Admin',
+          email: adminUser.email || null,
+          phone: adminUser.phone || null,
+          firmName: null,
+          brokerImage: null,
+          userId: {
+            _id: adminUser._id,
+            name: adminUser.name || 'Admin',
+            email: adminUser.email || null,
+            phone: adminUser.phone || null,
+            role: 'admin'
+          }
+        };
+      }
+    }
 
     // Convert brokerImage paths to URLs in detail too
     if (lead.createdBy && typeof lead.createdBy === 'object') {
@@ -835,6 +931,21 @@ export const getTransferredLeads = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
+    // First get original createdBy ObjectIds before populate
+    const leadDocs = await Lead.find(finalFilter)
+      .select('_id createdBy')
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+    
+    const createdByIdsMap = new Map();
+    leadDocs.forEach(doc => {
+      if (doc.createdBy) {
+        createdByIdsMap.set(doc._id.toString(), doc.createdBy);
+      }
+    });
+
     const [items, total] = await Promise.all([
       Lead.find(finalFilter)
         .sort(sort)
@@ -863,6 +974,53 @@ export const getTransferredLeads = async (req, res) => {
         .lean(),
       Lead.countDocuments(finalFilter)
     ]);
+
+    // Handle admin-created leads: find leads with null createdBy and populate from User
+    const adminCreatedLeadIds = [];
+    items.forEach((lead, index) => {
+      if (!lead.createdBy && createdByIdsMap.has(lead._id.toString())) {
+        adminCreatedLeadIds.push({ index, createdById: createdByIdsMap.get(lead._id.toString()) });
+      }
+    });
+
+    // Fetch admin users for leads with null createdBy (only if they exist as admin users)
+    if (adminCreatedLeadIds.length > 0) {
+      const adminUserIds = adminCreatedLeadIds.map(item => item.createdById);
+      // Only fetch users that are confirmed to be admins
+      const adminUsers = await User.find({ 
+        _id: { $in: adminUserIds }, 
+        role: 'admin' 
+      })
+        .select('_id name email phone role')
+        .lean();
+      
+      const adminUsersMap = new Map();
+      adminUsers.forEach(admin => {
+        adminUsersMap.set(admin._id.toString(), admin);
+      });
+
+      // Assign admin data to leads only if confirmed as admin user
+      adminCreatedLeadIds.forEach(({ index, createdById }) => {
+        const adminUser = adminUsersMap.get(createdById.toString());
+        if (adminUser && adminUser.role === 'admin') {
+          items[index].createdBy = {
+            _id: adminUser._id,
+            name: adminUser.name || 'Admin',
+            email: adminUser.email || null,
+            phone: adminUser.phone || null,
+            firmName: null,
+            brokerImage: null,
+            userId: {
+              _id: adminUser._id,
+              name: adminUser.name || 'Admin',
+              email: adminUser.email || null,
+              phone: adminUser.phone || null,
+              role: 'admin'
+            }
+          };
+        }
+      });
+    }
 
     const itemsWithImageUrls = (items || []).map(item => {
       const lead = { ...item };
@@ -1205,6 +1363,9 @@ export const updateLead = async (req, res) => {
       return serverError(res, e);
     }
 
+    // Get original createdBy ObjectId before update
+    const originalCreatedBy = existingLead.createdBy;
+
     // Update the lead
     const updatedLead = await Lead.findByIdAndUpdate(
       id,
@@ -1232,8 +1393,32 @@ export const updateLead = async (req, res) => {
         populate: { path: 'region', select: 'name state city description' }
       });
 
-    // Back-compat alias and transfer brokers' derived regions
+    // Handle admin-created leads: if createdBy is null (populate failed), check if it's an admin user
     const leadUpdated = updatedLead && updatedLead.toObject ? updatedLead.toObject() : updatedLead;
+    if (!leadUpdated.createdBy && originalCreatedBy) {
+      // Only populate from User table if the ID exists as an admin user
+      const adminUser = await User.findOne({ 
+        _id: originalCreatedBy, 
+        role: 'admin' 
+      }).select('_id name email phone role').lean();
+      
+      if (adminUser) {
+        leadUpdated.createdBy = {
+          _id: adminUser._id,
+          name: adminUser.name || 'Admin',
+          email: adminUser.email || null,
+          phone: adminUser.phone || null,
+          firmName: null,
+          userId: {
+            _id: adminUser._id,
+            name: adminUser.name || 'Admin',
+            email: adminUser.email || null,
+            phone: adminUser.phone || null,
+            role: 'admin'
+          }
+        };
+      }
+    }
     if (leadUpdated) {
       leadUpdated.region = leadUpdated.primaryRegion;
       if (Array.isArray(leadUpdated.transfers)) {
@@ -1811,6 +1996,9 @@ export const updateLeadVerification = async (req, res) => {
       return errorResponse(res, 'Lead not found', 404);
     }
 
+    // Get original createdBy ObjectId before update
+    const originalCreatedBy = lead.createdBy;
+
     // Update verification status
     lead.verificationStatus = verificationStatus;
     await lead.save();
@@ -1838,6 +2026,33 @@ export const updateLeadVerification = async (req, res) => {
         populate: { path: 'region', select: 'name state city description' }
       })
       .lean();
+
+    // Handle admin-created leads: if createdBy is null (populate failed), check if it's an admin user
+    if (!updatedLead.createdBy && originalCreatedBy) {
+      // Only populate from User table if the ID exists as an admin user
+      const adminUser = await User.findOne({ 
+        _id: originalCreatedBy, 
+        role: 'admin' 
+      }).select('_id name email phone role').lean();
+      
+      if (adminUser) {
+        updatedLead.createdBy = {
+          _id: adminUser._id,
+          name: adminUser.name || 'Admin',
+          email: adminUser.email || null,
+          phone: adminUser.phone || null,
+          firmName: null,
+          brokerImage: null,
+          userId: {
+            _id: adminUser._id,
+            name: adminUser.name || 'Admin',
+            email: adminUser.email || null,
+            phone: adminUser.phone || null,
+            role: 'admin'
+          }
+        };
+      }
+    }
 
     // Convert brokerImage paths to URLs
     if (updatedLead.createdBy && typeof updatedLead.createdBy === 'object') {
