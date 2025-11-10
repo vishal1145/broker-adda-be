@@ -1694,35 +1694,115 @@ export const transferAndNotes = async (req, res) => {
           console.log('Successfully created single "all brokers" transfer notification');
         }
         // Don't create individual notifications for "all" - we already created one
-        return;
+      } else {
+        // Convert Set to Array and create notifications for each unique recipient broker
+        // (only for individual transfers)
+        const uniqueRecipientIds = Array.from(recipientBrokerIds).filter(Boolean);
+        
+        if (uniqueRecipientIds.length > 0) {
+          console.log(`Creating ${uniqueRecipientIds.length} transfer notifications for brokers:`, uniqueRecipientIds);
+          
+          const notifications = uniqueRecipientIds.map(toBrokerId =>
+            createTransferNotification(toBrokerId, fromId, lead, fromBroker)
+          );
+          
+          // Send all notifications
+          const results = await Promise.all(notifications);
+          const successCount = results.filter(r => r !== null).length;
+          console.log(`Successfully created ${successCount} out of ${notifications.length} transfer notifications`);
+        } else {
+          console.warn('No recipient brokers found for transfer notification');
+        }
       }
-      
-      // Convert Set to Array and create notifications for each unique recipient broker
-      // (only for individual and region transfers)
-      const uniqueRecipientIds = Array.from(recipientBrokerIds).filter(Boolean);
-      
-      if (uniqueRecipientIds.length === 0) {
-        console.warn('No recipient brokers found for transfer notification');
-        return;
-      }
-      
-      console.log(`Creating ${uniqueRecipientIds.length} transfer notifications for brokers:`, uniqueRecipientIds);
-      
-      const notifications = uniqueRecipientIds.map(toBrokerId =>
-        createTransferNotification(toBrokerId, fromId, lead, fromBroker)
-      );
-      
-      // Send all notifications
-      const results = await Promise.all(notifications);
-      const successCount = results.filter(r => r !== null).length;
-      console.log(`Successfully created ${successCount} out of ${notifications.length} transfer notifications`);
     } catch (notifError) {
       // Don't fail the request if notification fails
       console.error('Error creating transfer notification:', notifError);
       console.error('Stack:', notifError.stack);
     }
     
-    return successResponse(res, 'Transfer(s) and notes processed successfully', { lead });
+    // Get updated lead with populated data (same as getLeadById and other endpoints)
+    const updatedLead = await Lead.findById(id)
+      .populate({
+        path: 'createdBy',
+        select: 'name email phone firmName brokerImage userId',
+        populate: {
+          path: 'userId',
+          select: '_id name email phone role'
+        }
+      })
+      .populate({ path: 'primaryRegion', select: 'name state city description' })
+      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({
+        path: 'transfers.fromBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.toBroker',
+        select: 'name email phone firmName brokerImage region',
+        populate: { path: 'region', select: 'name state city description' }
+      })
+      .populate({
+        path: 'transfers.region',
+        select: 'name state city description'
+      })
+      .lean();
+
+    // Handle admin-created leads: if createdBy is null (populate failed), check if it's an admin user
+    if (!updatedLead.createdBy) {
+      const leadDoc = await Lead.findById(id).select('createdBy').lean();
+      if (leadDoc && leadDoc.createdBy) {
+        const adminUser = await User.findOne({ 
+          _id: leadDoc.createdBy, 
+          role: 'admin' 
+        }).select('_id name email phone role').lean();
+        
+        if (adminUser) {
+          updatedLead.createdBy = {
+            _id: adminUser._id,
+            name: adminUser.name || 'Admin',
+            email: adminUser.email || null,
+            phone: adminUser.phone || null,
+            firmName: null,
+            brokerImage: null,
+            userId: {
+              _id: adminUser._id,
+              name: adminUser.name || 'Admin',
+              email: adminUser.email || null,
+              phone: adminUser.phone || null,
+              role: 'admin'
+            }
+          };
+        }
+      }
+    }
+
+    // Convert brokerImage paths to URLs and format regions (same as getLeadById)
+    if (updatedLead.createdBy && typeof updatedLead.createdBy === 'object') {
+      updatedLead.createdBy.brokerImage = getFileUrl(req, updatedLead.createdBy.brokerImage);
+    }
+    if (Array.isArray(updatedLead.transfers)) {
+      updatedLead.transfers = updatedLead.transfers.map(t => {
+        const tr = { ...t };
+        if (tr.fromBroker && typeof tr.fromBroker === 'object') {
+          tr.fromBroker.brokerImage = getFileUrl(req, tr.fromBroker.brokerImage);
+          const regions = Array.isArray(tr.fromBroker.region) ? tr.fromBroker.region : [];
+          tr.fromBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
+          tr.fromBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+        }
+        if (tr.toBroker && typeof tr.toBroker === 'object') {
+          tr.toBroker.brokerImage = getFileUrl(req, tr.toBroker.brokerImage);
+          const regions = Array.isArray(tr.toBroker.region) ? tr.toBroker.region : [];
+          tr.toBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
+          tr.toBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+        }
+        return tr;
+      });
+    }
+    // Back-compat alias
+    updatedLead.region = updatedLead.primaryRegion;
+    
+    return successResponse(res, 'Transfer(s) and notes processed successfully', { lead: updatedLead });
   } catch (error) {
     return serverError(res, error);
   }
