@@ -544,7 +544,7 @@ export const verifyOTP = async (req, res) => {
 // Complete profile after OTP verification
 export const completeProfile = async (req, res) => {
   try {
-    const { phone, name, email, content, aboutUs, experienceYears, experienceDescription, achievements, certifications, ...roleSpecificData } = req.body;
+    const { phone, name, email, content, aboutUs, experienceYears, experienceDescription, achievements, certifications, aadhar, pan, gst, brokerLicense, companyId, ...roleSpecificData } = req.body;
     const files = req.files;
 
     const user = await User.findOne({ phone });
@@ -614,14 +614,47 @@ export const completeProfile = async (req, res) => {
       const brokerDetail = await BrokerDetail.findOne({ userId: user._id });
       
       if (brokerDetail) {
-        // Extract kycDocs and brokerImage before Object.assign to handle them separately
-        const { kycDocs: requestKycDocs, brokerImage: requestBrokerImage, ...brokerDetailsWithoutFiles } = roleSpecificData.brokerDetails || {};
+        // Extract kycDocs, brokerImage, specializations, aboutUs, and content before Object.assign to handle them separately
+        const { 
+          kycDocs: requestKycDocs, 
+          brokerImage: requestBrokerImage,
+          specializations: requestSpecializations,
+          aboutUs: requestAboutUs,
+          content: requestContent,
+          ...brokerDetailsWithoutFiles 
+        } = roleSpecificData.brokerDetails || {};
         
-        // Update existing broker details with user info (excluding kycDocs and brokerImage)
+        // Update existing broker details with user info (excluding special fields)
         Object.assign(brokerDetail, brokerDetailsWithoutFiles);
         brokerDetail.name = name;
         brokerDetail.email = email;
         brokerDetail.phone = phone;
+
+        // Handle specializations explicitly - allow empty array or null
+        // Filter out empty strings, null values, and whitespace-only strings
+        if (requestSpecializations !== undefined) {
+          if (Array.isArray(requestSpecializations)) {
+            brokerDetail.specializations = requestSpecializations
+              .filter(spec => spec !== null && spec !== undefined && String(spec).trim() !== '');
+          } else {
+            brokerDetail.specializations = [];
+          }
+        }
+
+        // Handle aboutUs explicitly - allow empty string or null
+        const bd = roleSpecificData.brokerDetails || {};
+        if (requestAboutUs !== undefined) {
+          brokerDetail.aboutUs = requestAboutUs === null ? null : (requestAboutUs || '');
+        } else if (aboutUs !== undefined) {
+          brokerDetail.aboutUs = aboutUs === null ? null : (aboutUs || '');
+        }
+
+        // Handle content explicitly - allow empty string or null
+        if (requestContent !== undefined) {
+          brokerDetail.content = requestContent === null ? null : (requestContent || '');
+        } else if (content !== undefined) {
+          brokerDetail.content = content === null ? null : (content || '');
+        }
 
         // Helper to build address string for geocoding (only use address field)
         const buildFullAddress = (obj) => {
@@ -645,10 +678,7 @@ export const completeProfile = async (req, res) => {
           }
         }
 
-        // Map optional profile content/experience to BrokerDetail (support top-level and nested brokerDetails)
-        const bd = roleSpecificData.brokerDetails || {};
-        const finalContent = content || bd.content || bd.aboutUs || aboutUs;
-        if (finalContent) brokerDetail.content = finalContent;
+        // Map optional experience to BrokerDetail (support top-level and nested brokerDetails)
         const finalYears = experienceYears ?? bd.experienceYears;
         if (finalYears !== undefined || bd.experienceDescription || bd.achievements || bd.certifications || experienceDescription || achievements || certifications) {
           brokerDetail.experience = brokerDetail.experience || {};
@@ -661,27 +691,7 @@ export const completeProfile = async (req, res) => {
         // Handle file deletions and uploads
         brokerDetail.kycDocs = brokerDetail.kycDocs || {};
         
-        // Process kycDocs deletions
-        // Delete only if explicitly set to empty/null in request body
-        // Do NOT delete if no file is uploaded - preserve existing documents
-        if (requestKycDocs !== undefined) {
-          const kycDocFields = ['aadhar', 'pan', 'gst', 'brokerLicense', 'companyId'];
-          kycDocFields.forEach(field => {
-            // Delete if explicitly set to empty/null in request body
-            if (requestKycDocs[field] === '' || requestKycDocs[field] === null) {
-              brokerDetail.kycDocs[field] = null;
-            }
-          });
-        }
-
-        // Handle brokerImage deletion
-        // Delete only if explicitly set to empty/null in request body
-        // Do NOT delete if no file is uploaded - preserve existing image
-        if (requestBrokerImage === '' || requestBrokerImage === null) {
-          brokerDetail.brokerImage = null;
-        }
-
-        // Process uploaded files if any
+        // Process uploaded files FIRST (these update/replace existing docs)
         if (files) {
           // Process kycDocs (PDF files) - update existing kycDocs field
           if (files.aadhar) {
@@ -706,6 +716,58 @@ export const completeProfile = async (req, res) => {
           }
         }
 
+        // Process kycDocs deletions AFTER file uploads
+        // Handle both nested (brokerDetails.kycDocs) and top-level form fields (aadhar, pan, etc.)
+        
+        // First, check top-level form fields for deletions (when sent as empty strings)
+        const topLevelKycFields = { aadhar, pan, gst, brokerLicense, companyId };
+        const kycDocFields = ['aadhar', 'pan', 'gst', 'brokerLicense', 'companyId'];
+        
+        kycDocFields.forEach(field => {
+          // Check if top-level field is sent as empty string or null (form field deletion)
+          // Simple: if field is empty/null, delete it
+          if (topLevelKycFields[field] !== undefined && (topLevelKycFields[field] === '' || topLevelKycFields[field] === null)) {
+            // Skip deletion if a file was uploaded for this field (file upload takes precedence)
+            const hasFileUpload = files && files[field];
+            if (!hasFileUpload) {
+              brokerDetail.kycDocs[field] = null;
+            }
+          }
+        });
+        
+        // Then, process nested kycDocs deletions (brokerDetails.kycDocs)
+        // Only process if kycDocs is explicitly provided in request body
+        if (requestKycDocs !== undefined) {
+          // If entire kycDocs object is set to null or empty object, clear ALL docs
+          if (requestKycDocs === null || (typeof requestKycDocs === 'object' && Object.keys(requestKycDocs).length === 0 && requestKycDocs.constructor === Object)) {
+            brokerDetail.kycDocs = {};
+          } else if (typeof requestKycDocs === 'object') {
+            // Handle individual KYC doc deletions from nested object
+            kycDocFields.forEach(field => {
+              // Only process if field is explicitly provided in request
+              if (field in requestKycDocs) {
+                // Skip deletion if a file was uploaded for this field (file upload takes precedence)
+                const hasFileUpload = files && files[field];
+                if (!hasFileUpload) {
+                  // Delete if explicitly set to empty/null/undefined
+                  if (requestKycDocs[field] === '' || requestKycDocs[field] === null || requestKycDocs[field] === undefined) {
+                    brokerDetail.kycDocs[field] = null;
+                  }
+                }
+              }
+            });
+          }
+        }
+
+        // Handle brokerImage deletion
+        // Delete only if explicitly set to empty/null in request body (and no file uploaded)
+        if (requestBrokerImage === '' || requestBrokerImage === null) {
+          // Only delete if no file was uploaded (file upload takes precedence)
+          if (!files || !files.brokerImage) {
+            brokerDetail.brokerImage = null;
+          }
+        }
+
         await brokerDetail.save();
         console.log('Broker details updated successfully');
       } else {
@@ -721,7 +783,9 @@ export const completeProfile = async (req, res) => {
           state: roleSpecificData.brokerDetails.state || '',
           city: roleSpecificData.brokerDetails.city || '',
           whatsappNumber: roleSpecificData.brokerDetails.whatsappNumber || '',
-          specializations: roleSpecificData.brokerDetails.specializations || [],
+          specializations: Array.isArray(roleSpecificData.brokerDetails.specializations) 
+            ? roleSpecificData.brokerDetails.specializations.filter(spec => spec !== null && spec !== undefined && String(spec).trim() !== '')
+            : [],
           website: roleSpecificData.brokerDetails.website || '',
           socialMedia: {
             linkedin: roleSpecificData.brokerDetails.socialMedia?.linkedin || '',

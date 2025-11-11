@@ -48,13 +48,16 @@ export const completeProfileSchema = Joi.object({
     region: Joi.array().items(
       Joi.string().pattern(/^[0-9a-fA-F]{24}$/)
     ).min(1).required(),
-    kycDocs: Joi.object({
-      aadhar: Joi.string().optional(),
-      pan: Joi.string().optional(),
-      gst: Joi.string().optional(),
-      brokerLicense: Joi.string().optional(),
-      companyId: Joi.string().optional()
-    }).optional(),
+    kycDocs: Joi.alternatives().try(
+      Joi.object({
+        aadhar: Joi.string().optional().allow('', null),
+        pan: Joi.string().optional().allow('', null),
+        gst: Joi.string().optional().allow('', null),
+        brokerLicense: Joi.string().optional().allow('', null),
+        companyId: Joi.string().optional().allow('', null)
+      }),
+      Joi.object().allow(null)
+    ).optional().allow(null),
     // Optional content/about fields
     aboutUs: Joi.string().max(2000).trim().optional().allow('', null),
     content: Joi.string().max(2000).trim().optional().allow('', null),
@@ -86,7 +89,7 @@ export const completeProfileSchema = Joi.object({
   companyId: Joi.any().optional(),
   brokerImage: Joi.any().optional(),
   customerImage: Joi.any().optional()
-});
+}).unknown(true); // Allow unknown fields like removeCompanyId, etc.
 
 
 // Broker detail validation
