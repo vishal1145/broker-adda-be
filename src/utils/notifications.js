@@ -7,25 +7,44 @@ import Lead from '../models/Lead.js';
 import Message from '../models/Message.js';
 
 
+// Helper function to create SMTP transporter with server-friendly settings
+const createSMTPTransporter = async () => {
+  const nodemailer = await import('nodemailer');
+  
+  const smtpPort = parseInt(process.env.SMTP_PORT) || 587;
+  const isSecure = smtpPort === 465; // Port 465 uses SSL, 587 uses STARTTLS
+  
+  return nodemailer.default.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: smtpPort,
+    secure: isSecure, // true for 465, false for other ports
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    },
+    connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 60000, // 60 seconds for servers
+    greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 seconds
+    socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 60000, // 60 seconds for servers
+    requireTLS: !isSecure, // Require TLS for non-SSL ports
+    tls: {
+      rejectUnauthorized: process.env.SMTP_REJECT_UNAUTHORIZED !== 'false' // Allow self-signed certs if needed (set to 'false' if having cert issues)
+    },
+    // DNS lookup options for server environments
+    dns: {
+      timeout: 10000,
+      server: process.env.SMTP_DNS_SERVER || undefined // Use system DNS by default
+    },
+    // Pool connections for better performance
+    pool: true,
+    maxConnections: 1,
+    maxMessages: 3
+  });
+};
+
 const sendEmailNotification = async (userEmail, title, message) => {
   try {
-    // Import nodemailer dynamically
-    const nodemailer = await import('nodemailer');
-    
-    // Configure email transporter (you can move this to env variables)
-    const transporter = nodemailer.default.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      },
-      connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 seconds (default was 2 seconds)
-      greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 seconds
-      socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 30000, // 30 seconds
-      requireTLS: true // Require TLS for secure connection
-    });
+    // Configure email transporter with server-friendly settings
+    const transporter = await createSMTPTransporter();
 
     // Only send if SMTP is configured
     if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -60,23 +79,8 @@ const sendEmailNotification = async (userEmail, title, message) => {
 // Send email verification email
 export const sendVerificationEmail = async (userEmail, verificationToken, userName = 'User') => {
   try {
-    // Import nodemailer dynamically
-    const nodemailer = await import('nodemailer');
-    
-    // Configure email transporter
-    const transporter = nodemailer.default.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      },
-      connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 seconds (default was 2 seconds)
-      greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 seconds
-      socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 30000, // 30 seconds
-      requireTLS: true // Require TLS for secure connection
-    });
+    // Configure email transporter with server-friendly settings
+    const transporter = await createSMTPTransporter();
 
     // Only send if SMTP is configured
     if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -84,14 +88,15 @@ export const sendVerificationEmail = async (userEmail, verificationToken, userNa
       return false;
     }
 
-    // Verify SMTP connection before sending (optional, helps diagnose connection issues)
-    try {
-      await transporter.verify();
-      console.log('SMTP server connection verified successfully');
-    } catch (verifyError) {
-      console.error('SMTP server connection verification failed:', verifyError.message);
-      // Continue anyway - sometimes verify fails but sendMail works
-    }
+    // Skip verify() on server - it often times out even when sendMail works
+    // Uncomment below if you want to verify (but it may cause timeouts on servers)
+    // try {
+    //   await transporter.verify();
+    //   console.log('SMTP server connection verified successfully');
+    // } catch (verifyError) {
+    //   console.error('SMTP server connection verification failed:', verifyError.message);
+    //   // Continue anyway - sometimes verify fails but sendMail works
+    // }
 
     // Generate verification URL
     const baseUrl = process.env.BASE_URL ;
