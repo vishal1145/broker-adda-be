@@ -82,6 +82,8 @@ export const completeProfileSchema = Joi.object({
   aadhar: Joi.any().optional(),
   pan: Joi.any().optional(),
   gst: Joi.any().optional(),
+  brokerLicense: Joi.any().optional(),
+  companyId: Joi.any().optional(),
   brokerImage: Joi.any().optional(),
   customerImage: Joi.any().optional()
 });
