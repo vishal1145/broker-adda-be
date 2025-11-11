@@ -182,15 +182,14 @@ export const createLead = async (req, res) => {
     const lead = new Lead(payload);
     await lead.save();
     
-    // Create notification for lead creation
+    // Create notification for lead creation (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
-    try {
-      if (req.user?._id) {
-        await createLeadNotification(req.user._id, 'created', lead, req.user);
-      }
-    } catch (notifError) {
-      // Don't fail the request if notification fails
-      console.error('Error creating lead notification:', notifError);
+    if (req.user?._id) {
+      createLeadNotification(req.user._id, 'created', lead, req.user)
+        .catch(notifError => {
+          // Don't fail the request if notification fails
+          console.error('Error creating lead notification:', notifError);
+        });
     }
     
     // Back-compat alias for clients expecting `region`
@@ -1439,15 +1438,14 @@ export const updateLead = async (req, res) => {
       }
     }
 
-    // Create notification if status changed
+    // Create notification if status changed (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
     if (payload.status && payload.status !== existingLead.status) {
-      try {
-        if (req.user?._id) {
-          await createLeadNotification(req.user._id, 'statusChanged', updatedLead, req.user);
-        }
-      } catch (notifError) {
-        console.error('Error creating status change notification:', notifError);
+      if (req.user?._id) {
+        createLeadNotification(req.user._id, 'statusChanged', updatedLead, req.user)
+          .catch(notifError => {
+            console.error('Error creating status change notification:', notifError);
+          });
       }
     }
 
@@ -1662,7 +1660,7 @@ export const transferAndNotes = async (req, res) => {
         });
       }
       
-      // Handle region transfers - create ONE notification per unique region ID
+      // Handle region transfers - create ONE notification per unique region ID (non-blocking - fire and forget)
       const regionTransfers = transfersToAdd.filter(t => t.shareType === 'region' && t.region);
       if (regionTransfers.length > 0) {
         // Get unique region IDs
@@ -1671,15 +1669,19 @@ export const transferAndNotes = async (req, res) => {
         if (uniqueRegionIds.length > 0) {
           console.log(`Creating ${uniqueRegionIds.length} region transfer notifications for regions:`, uniqueRegionIds);
           
-          // Create one notification per unique region
-          const regionNotifications = await Promise.all(
+          // Create one notification per unique region (non-blocking)
+          Promise.all(
             uniqueRegionIds.map(regionId =>
               createRegionTransferNotification(regionId, fromId, lead, fromBroker)
             )
-          );
-          
-          const successCount = regionNotifications.filter(r => r !== null).length;
-          console.log(`Successfully created ${successCount} out of ${uniqueRegionIds.length} region transfer notifications`);
+          )
+          .then(regionNotifications => {
+            const successCount = regionNotifications.filter(r => r !== null).length;
+            console.log(`Successfully created ${successCount} out of ${uniqueRegionIds.length} region transfer notifications`);
+          })
+          .catch(error => {
+            console.error('Error creating region transfer notifications:', error);
+          });
           
           // Don't create individual broker notifications for region transfers
           // We already created one notification per region
@@ -1701,7 +1703,7 @@ export const transferAndNotes = async (req, res) => {
         // Don't create individual notifications for "all" - we already created one
       } else {
         // Convert Set to Array and create notifications for each unique recipient broker
-        // (only for individual transfers)
+        // (only for individual transfers) (non-blocking - fire and forget)
         const uniqueRecipientIds = Array.from(recipientBrokerIds).filter(Boolean);
         
         if (uniqueRecipientIds.length > 0) {
@@ -1711,10 +1713,15 @@ export const transferAndNotes = async (req, res) => {
             createTransferNotification(toBrokerId, fromId, lead, fromBroker)
           );
           
-          // Send all notifications
-          const results = await Promise.all(notifications);
-          const successCount = results.filter(r => r !== null).length;
-          console.log(`Successfully created ${successCount} out of ${notifications.length} transfer notifications`);
+          // Send all notifications (non-blocking)
+          Promise.all(notifications)
+            .then(results => {
+              const successCount = results.filter(r => r !== null).length;
+              console.log(`Successfully created ${successCount} out of ${notifications.length} transfer notifications`);
+            })
+            .catch(error => {
+              console.error('Error creating transfer notifications:', error);
+            });
         } else {
           console.warn('No recipient brokers found for transfer notification');
         }
