@@ -58,13 +58,26 @@ export const sendVerificationEmail = async (userEmail, verificationToken, userNa
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS
-      }
+      },
+      connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 seconds (default was 2 seconds)
+      greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 seconds
+      socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 30000, // 30 seconds
+      requireTLS: true // Require TLS for secure connection
     });
 
     // Only send if SMTP is configured
     if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
       console.log('Email verification not sent: SMTP not configured');
       return false;
+    }
+
+    // Verify SMTP connection before sending (optional, helps diagnose connection issues)
+    try {
+      await transporter.verify();
+      console.log('SMTP server connection verified successfully');
+    } catch (verifyError) {
+      console.error('SMTP server connection verification failed:', verifyError.message);
+      // Continue anyway - sometimes verify fails but sendMail works
     }
 
     // Generate verification URL
@@ -91,17 +104,28 @@ export const sendVerificationEmail = async (userEmail, verificationToken, userNa
       </div>
     `;
 
-    await transporter.sendMail({
+    const mailOptions = {
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: userEmail,
       subject: emailSubject,
       text: emailText,
       html: emailHtml
-    });
+    };
 
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`Verification email sent successfully to ${userEmail}. Message ID: ${info.messageId}`);
+    
     return true;
   } catch (error) {
     console.error('Error sending verification email:', error);
+    console.error('Error details:', {
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode,
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: process.env.SMTP_PORT || 587
+    });
     return false;
   }
 };
