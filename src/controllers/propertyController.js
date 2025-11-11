@@ -32,22 +32,22 @@ export const createProperty = async (req, res) => {
 
     // 1) basic format check (prevents CastError 500s)
     if (!brokerId || !mongoose.isValidObjectId(brokerId)) {
-      return res.status(400).json({ message: "Valid broker id is required." });
+      return res.status(400).json({ success: false, message: "Valid broker id is required." });
     }
 
     // 2) existence check in BrokerDetail
     const exists = await BrokerDetail.exists({ _id: brokerId });
     
-    if (!exists) return res.status(404).json({ message: "Broker not found." });
+    if (!exists) return res.status(404).json({ success: false, message: "Broker not found." });
 
     // 3) Validate region as ObjectId and ensure it exists
     const regionId = region;
     if (!regionId || !mongoose.isValidObjectId(regionId)) {
-      return res.status(400).json({ message: "Valid region id is required." });
+      return res.status(400).json({ success: false, message: "Valid region id is required." });
     }
     const regionExists = await Region.exists({ _id: regionId });
     if (!regionExists) {
-      return res.status(404).json({ message: "Region not found." });
+      return res.status(404).json({ success: false, message: "Region not found." });
     }
 
     // 4) merge uploaded media with any URLs provided in body
@@ -109,12 +109,12 @@ export const createProperty = async (req, res) => {
       console.error('Error creating property notification:', notifError);
     }
 
-    return res.status(201).json({ message: "Property created successfully.", data: created });
+    return res.status(201).json({ success: true, message: "Property created successfully.", data: created });
   } catch (err) {
     if (err.name === "ValidationError") {
-      return res.status(400).json({ message: "Validation failed.", details: err.errors });
+      return res.status(400).json({ success: false, message: "Validation failed.", details: err.errors });
     }
-    return res.status(500).json({ message: "Server error.", error: err.message });
+    return res.status(500).json({ success: false, message: "Server error.", error: err.message });
   }
 };
 
