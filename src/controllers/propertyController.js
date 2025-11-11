@@ -95,21 +95,26 @@ export const createProperty = async (req, res) => {
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
-    // Create notification for property creation
-    // Send notification to the broker who owns the property
-    try {
-      // Use the brokerId directly (ObjectId) instead of trying to extract from populated object
-      const brokerUserId = await getUserIdFromBrokerOrProperty(brokerId, null);
-      if (brokerUserId) {
-        await createPropertyNotification(brokerUserId, 'created', created, req.user);
-      } else {
-        console.warn('Could not find broker userId for property creation notification');
-      }
-    } catch (notifError) {
-      console.error('Error creating property notification:', notifError);
-    }
+    // Send response immediately before notification creation
+    res.status(201).json({ success: true, message: "Property created successfully.", data: created });
 
-    return res.status(201).json({ success: true, message: "Property created successfully.", data: created });
+    // Create notification for property creation (non-blocking - fire and forget)
+    // Send notification to the broker who owns the property
+    // Don't await - let it run in background so response is sent immediately
+    getUserIdFromBrokerOrProperty(brokerId, null)
+      .then(brokerUserId => {
+        if (brokerUserId) {
+          return createPropertyNotification(brokerUserId, 'created', created, req.user);
+        } else {
+          console.warn('Could not find broker userId for property creation notification');
+          return null;
+        }
+      })
+      .catch(notifError => {
+        console.error('Error creating property notification:', notifError);
+      });
+
+    return;
   } catch (err) {
     if (err.name === "ValidationError") {
       return res.status(400).json({ success: false, message: "Validation failed.", details: err.errors });
