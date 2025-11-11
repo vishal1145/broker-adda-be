@@ -76,10 +76,10 @@ const sendEmailNotification = async (userEmail, title, message) => {
   }
 };
 
-// Send email verification email
+// Send email verification email - uses same approach as sendEmailNotification for consistency
 export const sendVerificationEmail = async (userEmail, verificationToken, userName = 'User') => {
   try {
-    // Configure email transporter with server-friendly settings
+    // Configure email transporter with server-friendly settings (same as sendEmailNotification)
     const transporter = await createSMTPTransporter();
 
     // Only send if SMTP is configured
@@ -88,18 +88,8 @@ export const sendVerificationEmail = async (userEmail, verificationToken, userNa
       return false;
     }
 
-    // Skip verify() on server - it often times out even when sendMail works
-    // Uncomment below if you want to verify (but it may cause timeouts on servers)
-    // try {
-    //   await transporter.verify();
-    //   console.log('SMTP server connection verified successfully');
-    // } catch (verifyError) {
-    //   console.error('SMTP server connection verification failed:', verifyError.message);
-    //   // Continue anyway - sometimes verify fails but sendMail works
-    // }
-
     // Generate verification URL
-    const baseUrl = process.env.BASE_URL ;
+    const baseUrl = process.env.BASE_URL || '';
     const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
 
     const emailSubject = 'Verify Your Email Address';
@@ -122,17 +112,16 @@ export const sendVerificationEmail = async (userEmail, verificationToken, userNa
       </div>
     `;
 
-    const mailOptions = {
+    // Use same sendMail pattern as sendEmailNotification
+    const info = await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: userEmail,
       subject: emailSubject,
       text: emailText,
       html: emailHtml
-    };
+    });
 
-    const info = await transporter.sendMail(mailOptions);
     console.log(`Verification email sent successfully to ${userEmail}. Message ID: ${info.messageId}`);
-    
     return true;
   } catch (error) {
     console.error('Error sending verification email:', error);
