@@ -1,6 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 import { errorResponse } from '../utils/response.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -8,6 +9,25 @@ const __dirname = path.dirname(__filename);
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, '../uploads');
+
+// Ensure uploads directory and subdirectories exist
+const ensureUploadsDir = () => {
+  const dirs = [
+    uploadsDir,
+    path.join(uploadsDir, 'images'),
+    path.join(uploadsDir, 'keydocs')
+  ];
+  
+  dirs.forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`Created uploads directory: ${dir}`);
+    }
+  });
+};
+
+// Initialize directories on module load
+ensureUploadsDir();
 
 // Configure storage
 const storage = multer.diskStorage({
@@ -113,16 +133,31 @@ export const getFileUrl = (req, filePath) => {
     return filePath;
   }
   
-  // Determine base URL - use production URL if available, otherwise use request host
+  // For static files (uploads), always use the backend server URL
+  // This ensures files are accessible even if BASE_URL points to frontend
   let baseUrl;
-  if (process.env.BASE_URL) {
-    baseUrl = process.env.BASE_URL;
-  } else if (process.env.NODE_ENV === 'production') {
-    // Hardcoded production URL as fallback
-    baseUrl = 'https://broker-adda-be.algofolks.com';
+  const isUploadFile = filePath.includes('/uploads/') || filePath.includes('uploads');
+  
+  if (isUploadFile) {
+    // For upload files, prioritize BACKEND_URL or STATIC_URL, then fallback to backend domain
+    if (process.env.BACKEND_URL || process.env.STATIC_URL) {
+      baseUrl = process.env.BACKEND_URL || process.env.STATIC_URL;
+    } else if (process.env.NODE_ENV === 'production') {
+      // Production: always use backend server for static files
+      baseUrl = 'https://broker-adda-be.algofolks.com';
+    } else {
+      // Development: use request host (which should be backend)
+      baseUrl = `${req.protocol}://${req.get('host')}`;
+    }
   } else {
-    // Development - use request host
-    baseUrl = `${req.protocol}://${req.get('host')}`;
+    // For non-upload files, use BASE_URL if available
+    if (process.env.BASE_URL) {
+      baseUrl = process.env.BASE_URL;
+    } else if (process.env.NODE_ENV === 'production') {
+      baseUrl = 'https://broker-adda-be.algofolks.com';
+    } else {
+      baseUrl = `${req.protocol}://${req.get('host')}`;
+    }
   }
   
   // If it's a relative path starting with /uploads, just add the base URL
