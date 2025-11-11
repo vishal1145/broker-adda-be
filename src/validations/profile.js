@@ -22,7 +22,7 @@ export const completeProfileSchema = Joi.object({
     whatsappNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional(),
     specializations: Joi.array().items(
       Joi.string().max(100).trim()
-    ).optional(),
+    ).optional().allow(null),
     website: Joi.alternatives().try(
       Joi.string().uri().max(200).trim(),
       Joi.string().allow('', null).max(200).trim()
