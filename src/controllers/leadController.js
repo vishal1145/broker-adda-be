@@ -2176,3 +2176,126 @@ export const getFullLeadsByBrokerId = async (req, res) => {
     return serverError(res, error);
   }
 };
+
+// Get leads grouped by month for dashboard graph (12 months: Jan-Dec) - Token based
+export const getLeadsByMonth = async (req, res) => {
+  try {
+    const { year } = req.query || {};
+
+    // Require authentication - broker must be logged in
+    if (!req.user) {
+      return errorResponse(res, 'Authentication required', 401);
+    }
+
+    // Build base filter
+    const matchFilter = {};
+
+    // Get broker from token - only brokers can access this endpoint
+    let effectiveBrokerId = null;
+    if (req.user.role === 'broker') {
+      try {
+        const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
+        if (!brokerDetailId) {
+          return errorResponse(res, 'Broker profile not found', 404);
+        }
+        effectiveBrokerId = String(brokerDetailId);
+      } catch (err) {
+        console.error('Error finding broker detail:', err);
+        return errorResponse(res, 'Error finding broker profile', 500);
+      }
+    } else {
+      return errorResponse(res, 'Only brokers can access this endpoint', 403);
+    }
+
+    // Apply broker filter - only leads created by this broker (not transferred leads)
+    if (effectiveBrokerId) {
+      if (!mongoose.Types.ObjectId.isValid(String(effectiveBrokerId))) {
+        return errorResponse(res, 'Invalid brokerId format', 400);
+      }
+      
+      const brokerObjectId = new mongoose.Types.ObjectId(String(effectiveBrokerId));
+      // Only filter by createdBy - exclude transferred leads
+      matchFilter.createdBy = brokerObjectId;
+    }
+
+    // Determine year - default to current year
+    let targetYear;
+    if (year) {
+      targetYear = parseInt(year, 10);
+      if (isNaN(targetYear) || targetYear < 2000 || targetYear > 2100) {
+        return errorResponse(res, 'Invalid year format', 400);
+      }
+    } else {
+      // Default to current year
+      targetYear = new Date().getFullYear();
+    }
+
+    // Set date range for the entire year (Jan 1 - Dec 31)
+    const startDate = new Date(targetYear, 0, 1, 0, 0, 0, 0); // January 1st
+    const endDate = new Date(targetYear, 11, 31, 23, 59, 59, 999); // December 31st
+
+    // Apply date filter to match query
+    matchFilter.createdAt = {
+      $gte: startDate,
+      $lte: endDate
+    };
+
+    // Aggregate leads by month
+    const leadsByMonth = await Lead.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          year: '$_id.year',
+          month: '$_id.month',
+          count: 1
+        }
+      }
+    ]);
+
+    // Generate all 12 months (Jan-Dec) for the target year
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const allMonths = [];
+    
+    for (let month = 1; month <= 12; month++) {
+      const monthLabel = `${targetYear}-${month.toString().padStart(2, '0')}`;
+      
+      allMonths.push({
+        year: targetYear,
+        month: month,
+        monthName: monthNames[month - 1],
+        monthLabel: monthLabel,
+        count: 0
+      });
+    }
+
+    // Create a map of aggregated data for quick lookup
+    const dataMap = new Map();
+    leadsByMonth.forEach(item => {
+      const key = `${item.year}-${item.month.toString().padStart(2, '0')}`;
+      dataMap.set(key, item.count);
+    });
+
+    // Merge data - fill in counts from aggregated data, keep 0 for missing months
+    const result = allMonths.map(month => ({
+      year: month.year,
+      month: month.month,
+      monthName: month.monthName,
+      monthLabel: month.monthLabel,
+      count: dataMap.get(month.monthLabel) || 0
+    }));
+
+    return successResponse(res, 'Leads by month retrieved successfully', result);
+  } catch (error) {
+    return serverError(res, error);
+  }
+};

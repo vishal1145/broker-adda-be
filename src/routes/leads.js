@@ -1,5 +1,5 @@
 import express from 'express';
-import { createLead, getLeads, getLeadById, getLeadMetrics, updateLeadVerification, getFullLeadsByBrokerId,  updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer, updateRegionTransfer, deleteRegionTransfer } from '../controllers/leadController.js';
+import { createLead, getLeads, getLeadById, getLeadMetrics, updateLeadVerification, getFullLeadsByBrokerId,  updateLead, deleteLead, transferAndNotes, getTransferredLeads, deleteLeadTransfer, updateRegionTransfer, deleteRegionTransfer, getLeadsByMonth } from '../controllers/leadController.js';
 import { validate } from '../middleware/validation.js';
 import { authenticate } from '../middleware/auth.js';
 import { createLeadSchema, updateLeadSchema, leadQuerySchema, transferAndNotesSchema, transferredLeadQuerySchema, updateRegionTransferSchema } from '../validations/lead.js';
@@ -14,6 +14,9 @@ router.get('/', validate(leadQuerySchema, 'query'), getLeads);
 
 // Lead metrics (totals for dashboard)
 router.get('/metrics', getLeadMetrics);
+
+// Get leads grouped by month (for dashboard graph) - token based
+router.get('/by-month', authenticate, getLeadsByMonth);
 
 // List only transferred leads, optionally filter by toBroker/fromBroker
 router.get('/transferred', validate(transferredLeadQuerySchema, 'query'), getTransferredLeads);

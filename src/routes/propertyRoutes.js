@@ -7,7 +7,8 @@ import {
   rejectProperty,
   getPropertyMetrics,
   updateProperty,
-  deleteProperty
+  deleteProperty,
+  getPropertiesByMonth
 } from "../controllers/propertyController.js";
 import { validate } from "../middleware/validation.js";
 import { validateCreateProperty, validateUpdateProperty } from "../validations/property.js"
@@ -19,6 +20,9 @@ const router = Router();
 
 // POST /api/properties → create property (with validation)
 router.get("/metrics", getPropertyMetrics);
+
+// Get properties grouped by month (for dashboard graph) - token based
+router.get("/by-month", authenticate, getPropertiesByMonth);
 
 router.post("/", uploadPropertyMedia, handleUploadError, validateCreateProperty, createProperty);
 

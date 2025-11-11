@@ -741,3 +741,126 @@ export const deleteProperty = async (req, res) => {
     return res.status(500).json({ success: false, message: "Server error.", error: err.message });
   }
 };
+
+// Get properties grouped by month for dashboard graph (12 months: Jan-Dec) - Token based
+export const getPropertiesByMonth = async (req, res) => {
+  try {
+    const { year } = req.query || {};
+
+    // Require authentication - broker must be logged in
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    // Build base filter
+    const matchFilter = {};
+
+    // Get broker from token - only brokers can access this endpoint
+    let effectiveBrokerId = null;
+    if (req.user.role === "broker") {
+      try {
+        const broker = await BrokerDetail.findOne({ userId: req.user._id }).select('_id');
+        if (!broker) {
+          return res.status(404).json({ success: false, message: "Broker profile not found" });
+        }
+        effectiveBrokerId = String(broker._id);
+      } catch (err) {
+        console.error('Error finding broker detail:', err);
+        return res.status(500).json({ success: false, message: "Error finding broker profile" });
+      }
+    } else {
+      return res.status(403).json({ success: false, message: "Only brokers can access this endpoint" });
+    }
+
+    // Apply broker filter
+    if (effectiveBrokerId) {
+      const brokerObjectId = new mongoose.Types.ObjectId(String(effectiveBrokerId));
+      matchFilter.broker = brokerObjectId;
+    }
+
+    // Determine year - default to current year
+    let targetYear;
+    if (year) {
+      targetYear = parseInt(year, 10);
+      if (isNaN(targetYear) || targetYear < 2000 || targetYear > 2100) {
+        return res.status(400).json({ success: false, message: "Invalid year format" });
+      }
+    } else {
+      // Default to current year
+      targetYear = new Date().getFullYear();
+    }
+
+    // Set date range for the entire year (Jan 1 - Dec 31)
+    const startDate = new Date(targetYear, 0, 1, 0, 0, 0, 0); // January 1st
+    const endDate = new Date(targetYear, 11, 31, 23, 59, 59, 999); // December 31st
+
+    // Apply date filter to match query
+    matchFilter.createdAt = {
+      $gte: startDate,
+      $lte: endDate
+    };
+
+    // Aggregate properties by month
+    const propertiesByMonth = await Property.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          year: '$_id.year',
+          month: '$_id.month',
+          count: 1
+        }
+      }
+    ]);
+
+    // Generate all 12 months (Jan-Dec) for the target year
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const allMonths = [];
+    
+    for (let month = 1; month <= 12; month++) {
+      const monthLabel = `${targetYear}-${month.toString().padStart(2, '0')}`;
+      
+      allMonths.push({
+        year: targetYear,
+        month: month,
+        monthName: monthNames[month - 1],
+        monthLabel: monthLabel,
+        count: 0
+      });
+    }
+
+    // Create a map of aggregated data for quick lookup
+    const dataMap = new Map();
+    propertiesByMonth.forEach(item => {
+      const key = `${item.year}-${item.month.toString().padStart(2, '0')}`;
+      dataMap.set(key, item.count);
+    });
+
+    // Merge data - fill in counts from aggregated data, keep 0 for missing months
+    const result = allMonths.map(month => ({
+      year: month.year,
+      month: month.month,
+      monthName: month.monthName,
+      monthLabel: month.monthLabel,
+      count: dataMap.get(month.monthLabel) || 0
+    }));
+
+    return res.json({
+      success: true,
+      message: "Properties by month retrieved successfully",
+      data: result
+    });
+  } catch (err) {
+    console.error("getPropertiesByMonth error:", err);
+    return res.status(500).json({ success: false, message: "Server error.", error: err.message });
+  }
+};
