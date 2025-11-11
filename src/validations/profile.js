@@ -21,7 +21,7 @@ export const completeProfileSchema = Joi.object({
     city: Joi.string().optional().max(50).trim(),
     whatsappNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional(),
     specializations: Joi.array().items(
-      Joi.string().max(100).trim()
+      Joi.string().max(100).trim().allow('', null)
     ).optional().allow(null),
     website: Joi.alternatives().try(
       Joi.string().uri().max(200).trim(),
