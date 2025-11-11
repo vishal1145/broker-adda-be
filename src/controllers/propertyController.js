@@ -449,19 +449,22 @@ export const approveProperty = async (req, res) => {
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
-    // Create notification for property approval
+    // Create notification for property approval (non-blocking - fire and forget)
     // Send notification to the broker who owns the property
-    try {
-      const brokerUserId = await getUserIdFromBrokerOrProperty(populated.broker?._id || populated.broker, null);
-      if (brokerUserId) {
-        await createPropertyNotification(brokerUserId, 'approved', populated, req.user);
-      } else {
-        console.warn('Could not find broker userId for property approval notification');
-      }
-    } catch (notifError) {
-      console.error('Error creating approval notification:', notifError);
-    }
+    getUserIdFromBrokerOrProperty(populated.broker?._id || populated.broker, null)
+      .then(brokerUserId => {
+        if (brokerUserId) {
+          return createPropertyNotification(brokerUserId, 'approved', populated, req.user);
+        } else {
+          console.warn('Could not find broker userId for property approval notification');
+          return null;
+        }
+      })
+      .catch(notifError => {
+        console.error('Error creating approval notification:', notifError);
+      });
 
+    // Send response immediately (notification creation runs in background)
     return res.json({ success: true, message: "Property approved", data: populated });
   } catch (err) {
     console.error("approveProperty error:", err);
@@ -493,16 +496,16 @@ export const rejectProperty = async (req, res) => {
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
-    // Create notification for property rejection
+    // Create notification for property rejection (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
-    try {
-      if (req.user?._id) {
-        await createPropertyNotification(req.user._id, 'rejected', populated, req.user);
-      }
-    } catch (notifError) {
-      console.error('Error creating rejection notification:', notifError);
+    if (req.user?._id) {
+      createPropertyNotification(req.user._id, 'rejected', populated, req.user)
+        .catch(notifError => {
+          console.error('Error creating rejection notification:', notifError);
+        });
     }
 
+    // Send response immediately (notification creation runs in background)
     return res.json({ success: true, message: "Property rejected", data: populated });
   } catch (err) {
     console.error("rejectProperty error:", err);
@@ -671,18 +674,18 @@ export const updateProperty = async (req, res) => {
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
-    // Create notification if status changed
+    // Create notification if status changed (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
     if (updateData.status && updateData.status !== originalStatus) {
-      try {
-        if (req.user?._id) {
-          await createPropertyNotification(req.user._id, 'updated', updatedProperty, req.user);
-        }
-      } catch (notifError) {
-        console.error('Error creating update notification:', notifError);
+      if (req.user?._id) {
+        createPropertyNotification(req.user._id, 'updated', updatedProperty, req.user)
+          .catch(notifError => {
+            console.error('Error creating update notification:', notifError);
+          });
       }
     }
 
+    // Send response immediately (notification creation runs in background)
     return res.json({
       success: true,
       message: "Property updated successfully",
@@ -726,21 +729,23 @@ export const deleteProperty = async (req, res) => {
       }
     }
 
-    // Create notification before deleting
-    // Send notification to the broker who owns the property
-    try {
-      const brokerUserId = await getUserIdFromBrokerOrProperty(property.broker?._id || property.broker, null);
-      if (brokerUserId) {
-        await createPropertyNotification(brokerUserId, 'deleted', property, req.user);
-      } else {
-        console.warn('Could not find broker userId for property deletion notification');
-      }
-    } catch (notifError) {
-      console.error('Error creating deletion notification:', notifError);
-    }
-
-    // Delete the property
+    // Delete the property first
     await Property.findByIdAndDelete(id);
+
+    // Create notification after deleting (non-blocking - fire and forget)
+    // Send notification to the broker who owns the property
+    getUserIdFromBrokerOrProperty(property.broker?._id || property.broker, null)
+      .then(brokerUserId => {
+        if (brokerUserId) {
+          return createPropertyNotification(brokerUserId, 'deleted', property, req.user);
+        } else {
+          console.warn('Could not find broker userId for property deletion notification');
+          return null;
+        }
+      })
+      .catch(notifError => {
+        console.error('Error creating deletion notification:', notifError);
+      });
 
     return res.json({
       success: true,

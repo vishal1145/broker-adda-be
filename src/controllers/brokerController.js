@@ -421,33 +421,31 @@ export const approveBroker = async (req, res) => {
       await updateMultipleRegionBrokerCounts(broker.region);
     }
 
-    // Create notification for broker approval
+    // Create notification for broker approval (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
-    try {
-      if (req.user?._id) {
-        await createNotification({
-          userId: req.user._id,
-          type: 'approval',
-          title: 'Broker Account Approved',
-          message: 'Your broker account has been approved and unblocked by admin.',
-          priority: 'high',
-          relatedEntity: {
-            entityType: 'BrokerDetail',
-            entityId: broker._id
-          },
-          activity: {
-            action: 'approved',
-            actorId: req.user._id,
-            actorName: req.user?.name || 'Admin'
-          },
-          metadata: {
-            brokerId: broker._id,
-            status: 'unblocked'
-          }
-        });
-      }
-    } catch (notifError) {
-      console.error('Error creating broker approval notification:', notifError);
+    if (req.user?._id) {
+      createNotification({
+        userId: req.user._id,
+        type: 'approval',
+        title: 'Broker Account Approved',
+        message: 'Your broker account has been approved and unblocked by admin.',
+        priority: 'high',
+        relatedEntity: {
+          entityType: 'BrokerDetail',
+          entityId: broker._id
+        },
+        activity: {
+          action: 'approved',
+          actorId: req.user._id,
+          actorName: req.user?.name || 'Admin'
+        },
+        metadata: {
+          brokerId: broker._id,
+          status: 'unblocked'
+        }
+      }).catch(notifError => {
+        console.error('Error creating broker approval notification:', notifError);
+      });
     }
 
     // Get updated broker with populated data
@@ -518,33 +516,31 @@ export const rejectBroker = async (req, res) => {
       await updateMultipleRegionBrokerCounts(broker.region);
     }
 
-    // Create notification for broker rejection/blocking
+    // Create notification for broker rejection/blocking (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
-    try {
-      if (req.user?._id) {
-        await createNotification({
-          userId: req.user._id,
-          type: 'approval',
-          title: 'Broker Account Blocked',
-          message: 'Your broker account has been blocked by admin. Please contact support for more information.',
-          priority: 'high',
-          relatedEntity: {
-            entityType: 'BrokerDetail',
-            entityId: broker._id
-          },
-          activity: {
-            action: 'blocked',
-            actorId: req.user._id,
-            actorName: req.user?.name || 'Admin'
-          },
-          metadata: {
-            brokerId: broker._id,
-            status: 'blocked'
-          }
-        });
-      }
-    } catch (notifError) {
-      console.error('Error creating broker rejection notification:', notifError);
+    if (req.user?._id) {
+      createNotification({
+        userId: req.user._id,
+        type: 'approval',
+        title: 'Broker Account Blocked',
+        message: 'Your broker account has been blocked by admin. Please contact support for more information.',
+        priority: 'high',
+        relatedEntity: {
+          entityType: 'BrokerDetail',
+          entityId: broker._id
+        },
+        activity: {
+          action: 'blocked',
+          actorId: req.user._id,
+          actorName: req.user?.name || 'Admin'
+        },
+        metadata: {
+          brokerId: broker._id,
+          status: 'blocked'
+        }
+      }).catch(notifError => {
+        console.error('Error creating broker rejection notification:', notifError);
+      });
     }
 
     // Get updated broker with populated data
@@ -614,33 +610,31 @@ export const updateBrokerVerification = async (req, res) => {
     broker.verificationStatus = verificationStatus;
     await broker.save();
 
-    // Create notification for verification status change
+    // Create notification for verification status change (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
-    try {
-      if (req.user?._id) {
-        await createNotification({
-          userId: req.user._id,
-          type: 'approval',
-          title: `Broker Verification Status: ${verificationStatus}`,
-          message: `Your broker verification status has been updated to ${verificationStatus} by admin.`,
-          priority: verificationStatus === 'Verified' ? 'high' : 'medium',
-          relatedEntity: {
-            entityType: 'BrokerDetail',
-            entityId: broker._id
-          },
-          activity: {
-            action: 'verificationUpdated',
-            actorId: req.user._id,
-            actorName: req.user?.name || 'Admin'
-          },
-          metadata: {
-            brokerId: broker._id,
-            verificationStatus
-          }
-        });
-      }
-    } catch (notifError) {
-      console.error('Error creating verification notification:', notifError);
+    if (req.user?._id) {
+      createNotification({
+        userId: req.user._id,
+        type: 'approval',
+        title: `Broker Verification Status: ${verificationStatus}`,
+        message: `Your broker verification status has been updated to ${verificationStatus} by admin.`,
+        priority: verificationStatus === 'Verified' ? 'high' : 'medium',
+        relatedEntity: {
+          entityType: 'BrokerDetail',
+          entityId: broker._id
+        },
+        activity: {
+          action: 'verificationUpdated',
+          actorId: req.user._id,
+          actorName: req.user?.name || 'Admin'
+        },
+        metadata: {
+          brokerId: broker._id,
+          verificationStatus
+        }
+      }).catch(notifError => {
+        console.error('Error creating verification notification:', notifError);
+      });
     }
 
     // Get updated broker with populated data

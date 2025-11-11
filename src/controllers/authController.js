@@ -1337,17 +1337,24 @@ export const sendEmailVerification = async (req, res) => {
     user.emailVerificationTokenExpiresAt = tokenExpiresAt;
     await user.save();
 
-    // Send verification email
-    const emailSent = await sendVerificationEmail(
+    // Send verification email (non-blocking - fire and forget)
+    // Don't await - let it run in background so response is sent immediately
+    sendVerificationEmail(
       user.email,
       verificationToken,
       user.name || 'User'
-    );
+    ).then(emailSent => {
+      if (!emailSent) {
+        console.error('Failed to send verification email. SMTP may not be configured properly.');
+      } else {
+        console.log(`Verification email sent successfully to ${user.email}`);
+      }
+    }).catch(error => {
+      console.error('Error sending verification email:', error);
+      // Don't fail the request - token is already saved, user can request again if needed
+    });
 
-    if (!emailSent) {
-      return errorResponse(res, 'Failed to send verification email. Please check your SMTP configuration.', 500);
-    }
-
+    // Send response immediately (email sending runs in background)
     return successResponse(res, 'Verification email sent successfully', {
       message: 'Please check your email inbox and click on the verification link.',
       email: user.email,
@@ -1393,32 +1400,30 @@ export const verifyEmail = async (req, res) => {
     user.emailVerificationTokenExpiresAt = null;
     await user.save();
 
-    // Create notification for email verification
-    try {
-      await createNotification({
-        userId: user._id,
-        type: 'system',
-        title: 'Email Verified Successfully',
-        message: `Your email address ${user.email} has been verified successfully.`,
-        priority: 'medium',
-        relatedEntity: {
-          entityType: 'User',
-          entityId: user._id
-        },
-        activity: {
-          action: 'emailVerified',
-          actorId: user._id,
-          actorName: user.name || 'User'
-        },
-        metadata: {
-          email: user.email,
-          verifiedAt: new Date()
-        }
-      });
-    } catch (notifError) {
+    // Create notification for email verification (non-blocking - fire and forget)
+    createNotification({
+      userId: user._id,
+      type: 'system',
+      title: 'Email Verified Successfully',
+      message: `Your email address ${user.email} has been verified successfully.`,
+      priority: 'medium',
+      relatedEntity: {
+        entityType: 'User',
+        entityId: user._id
+      },
+      activity: {
+        action: 'emailVerified',
+        actorId: user._id,
+        actorName: user.name || 'User'
+      },
+      metadata: {
+        email: user.email,
+        verifiedAt: new Date()
+      }
+    }).catch(notifError => {
       console.error('Error creating email verification notification:', notifError);
       // Don't fail the request if notification fails
-    }
+    });
 
     return successResponse(res, 'Email verified successfully', {
       message: 'Your email has been verified successfully.',

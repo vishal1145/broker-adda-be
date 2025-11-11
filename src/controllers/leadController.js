@@ -1472,19 +1472,19 @@ export const deleteLead = async (req, res) => {
       return errorResponse(res, 'Lead not found', 404);
     }
 
-    // Create notification before deleting
-    // Use userId from token (req.user._id)
-    try {
-      if (req.user?._id) {
-        await createLeadNotification(req.user._id, 'deleted', lead, req.user);
-      }
-    } catch (notifError) {
-      console.error('Error creating lead deletion notification:', notifError);
-    }
-
-    // Delete the lead
+    // Delete the lead first
     await Lead.findByIdAndDelete(id);
 
+    // Create notification after deleting (non-blocking - fire and forget)
+    // Use userId from token (req.user._id)
+    if (req.user?._id) {
+      createLeadNotification(req.user._id, 'deleted', lead, req.user)
+        .catch(notifError => {
+          console.error('Error creating lead deletion notification:', notifError);
+        });
+    }
+
+    // Send response immediately (notification creation runs in background)
     return successResponse(res, 'Lead deleted successfully');
   } catch (error) {
     return serverError(res, error);
@@ -1686,13 +1686,18 @@ export const transferAndNotes = async (req, res) => {
         }
       }
       
-      // Handle "all brokers" transfer - create ONE notification (like lead creation)
+      // Handle "all brokers" transfer - create ONE notification (non-blocking - fire and forget)
       const hasAllTransfer = transfersToAdd.some(t => t.shareType === 'all');
       if (hasAllTransfer) {
-        const allNotification = await createAllBrokersTransferNotification(fromId, lead, fromBroker);
-        if (allNotification) {
-          console.log('Successfully created single "all brokers" transfer notification');
-        }
+        createAllBrokersTransferNotification(fromId, lead, fromBroker)
+          .then(allNotification => {
+            if (allNotification) {
+              console.log('Successfully created single "all brokers" transfer notification');
+            }
+          })
+          .catch(error => {
+            console.error('Error creating all brokers transfer notification:', error);
+          });
         // Don't create individual notifications for "all" - we already created one
       } else {
         // Convert Set to Array and create notifications for each unique recipient broker

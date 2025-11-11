@@ -83,38 +83,41 @@ io.on('connection', (socket) => {
       $inc: { [`unreadCounts.${data.to}`]: 1 }
     });
 
-    // Create notification for new message
-    try {
-      const { createNotification } = await import('./utils/notifications.js');
-      const fromUser = await User.findById(userId).select('name');
-      
-      await createNotification({
-        userId: data.to,
-        type: 'message',
-        title: 'New Message',
-        message: fromUser?.name 
-          ? `You have a new message from ${fromUser.name}${data.text ? `: ${data.text.substring(0, 50)}${data.text.length > 50 ? '...' : ''}` : ''}`
-          : `You have a new message${data.text ? `: ${data.text.substring(0, 50)}${data.text.length > 50 ? '...' : ''}` : ''}`,
-        priority: 'medium',
-        relatedEntity: {
-          entityType: 'Message',
-          entityId: msg._id
-        },
-        activity: {
-          action: 'sent',
-          actorId: userId,
-          actorName: fromUser?.name
-        },
-        metadata: {
-          chatId: data.chatId,
-          messageId: msg._id,
-          hasAttachments: (data.attachments || []).length > 0,
-          hasLeadCards: (data.leadCard || []).length > 0
-        }
-      });
-    } catch (notifError) {
-      console.error('Error creating message notification:', notifError);
-    }
+    // Create notification for new message (non-blocking - fire and forget)
+    // Don't await - let it run in background so socket message is sent immediately
+    (async () => {
+      try {
+        const { createNotification } = await import('./utils/notifications.js');
+        const fromUser = await User.findById(userId).select('name');
+        
+        await createNotification({
+          userId: data.to,
+          type: 'message',
+          title: 'New Message',
+          message: fromUser?.name 
+            ? `You have a new message from ${fromUser.name}${data.text ? `: ${data.text.substring(0, 50)}${data.text.length > 50 ? '...' : ''}` : ''}`
+            : `You have a new message${data.text ? `: ${data.text.substring(0, 50)}${data.text.length > 50 ? '...' : ''}` : ''}`,
+          priority: 'medium',
+          relatedEntity: {
+            entityType: 'Message',
+            entityId: msg._id
+          },
+          activity: {
+            action: 'sent',
+            actorId: userId,
+            actorName: fromUser?.name
+          },
+          metadata: {
+            chatId: data.chatId,
+            messageId: msg._id,
+            hasAttachments: (data.attachments || []).length > 0,
+            hasLeadCards: (data.leadCard || []).length > 0
+          }
+        });
+      } catch (notifError) {
+        console.error('Error creating message notification:', notifError);
+      }
+    })();
 
     io.to(`chat_${data.chatId}`).emit('message', msg);
   });
