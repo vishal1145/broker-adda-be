@@ -98,7 +98,8 @@ export const createProperty = async (req, res) => {
     // Create notification for property creation
     // Send notification to the broker who owns the property
     try {
-      const brokerUserId = await getUserIdFromBrokerOrProperty(created.broker?._id || created.broker, null);
+      // Use the brokerId directly (ObjectId) instead of trying to extract from populated object
+      const brokerUserId = await getUserIdFromBrokerOrProperty(brokerId, null);
       if (brokerUserId) {
         await createPropertyNotification(brokerUserId, 'created', created, req.user);
       } else {
