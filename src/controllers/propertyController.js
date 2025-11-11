@@ -5,7 +5,7 @@ import PropertyRating from "../models/PropertyRating.js";
 import BrokerDetail from "../models/BrokerDetail.js"; // ✅ correct model
 import Region from "../models/Region.js";
 import { getFileUrl } from "../middleware/upload.js";
-import { createPropertyNotification, createNotification } from "../utils/notifications.js";
+import { createPropertyNotification, createNotification, getUserIdFromBrokerOrProperty } from "../utils/notifications.js";
 import User from "../models/User.js";
 
 export const createProperty = async (req, res) => {
@@ -96,10 +96,13 @@ export const createProperty = async (req, res) => {
       .lean();
 
     // Create notification for property creation
-    // Use userId from token (req.user._id)
+    // Send notification to the broker who owns the property
     try {
-      if (req.user?._id) {
-        await createPropertyNotification(req.user._id, 'created', created, req.user);
+      const brokerUserId = await getUserIdFromBrokerOrProperty(created.broker?._id || created.broker, null);
+      if (brokerUserId) {
+        await createPropertyNotification(brokerUserId, 'created', created, req.user);
+      } else {
+        console.warn('Could not find broker userId for property creation notification');
       }
     } catch (notifError) {
       console.error('Error creating property notification:', notifError);
@@ -446,10 +449,13 @@ export const approveProperty = async (req, res) => {
       .lean();
 
     // Create notification for property approval
-    // Use userId from token (req.user._id)
+    // Send notification to the broker who owns the property
     try {
-      if (req.user?._id) {
-        await createPropertyNotification(req.user._id, 'approved', populated, req.user);
+      const brokerUserId = await getUserIdFromBrokerOrProperty(populated.broker?._id || populated.broker, null);
+      if (brokerUserId) {
+        await createPropertyNotification(brokerUserId, 'approved', populated, req.user);
+      } else {
+        console.warn('Could not find broker userId for property approval notification');
       }
     } catch (notifError) {
       console.error('Error creating approval notification:', notifError);
@@ -720,10 +726,13 @@ export const deleteProperty = async (req, res) => {
     }
 
     // Create notification before deleting
-    // Use userId from token (req.user._id)
+    // Send notification to the broker who owns the property
     try {
-      if (req.user?._id) {
-        await createPropertyNotification(req.user._id, 'deleted', property, req.user);
+      const brokerUserId = await getUserIdFromBrokerOrProperty(property.broker?._id || property.broker, null);
+      if (brokerUserId) {
+        await createPropertyNotification(brokerUserId, 'deleted', property, req.user);
+      } else {
+        console.warn('Could not find broker userId for property deletion notification');
       }
     } catch (notifError) {
       console.error('Error creating deletion notification:', notifError);

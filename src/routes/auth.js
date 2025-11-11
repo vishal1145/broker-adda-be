@@ -11,6 +11,8 @@ import {
   checkEmailExists,
   adminCreateBroker,
   deleteAccount,
+  sendEmailVerification,
+  verifyEmail,
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validation.js';
@@ -44,5 +46,9 @@ router.get('/check-email', checkEmailExists);
 router.get('/profile', authenticate, getProfile);
 router.put('/profile', authenticate, updateProfile);
 router.delete('/account', authenticate, deleteAccount);
+
+// Email verification routes
+router.post('/send-verification-email', authenticate, sendEmailVerification);
+router.get('/verify-email', verifyEmail);
 
 export default router;

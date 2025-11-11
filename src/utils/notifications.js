@@ -44,6 +44,68 @@ const sendEmailNotification = async (userEmail, title, message) => {
   }
 };
 
+// Send email verification email
+export const sendVerificationEmail = async (userEmail, verificationToken, userName = 'User') => {
+  try {
+    // Import nodemailer dynamically
+    const nodemailer = await import('nodemailer');
+    
+    // Configure email transporter
+    const transporter = nodemailer.default.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: process.env.SMTP_PORT || 587,
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      }
+    });
+
+    // Only send if SMTP is configured
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      console.log('Email verification not sent: SMTP not configured');
+      return false;
+    }
+
+    // Generate verification URL
+    const baseUrl = process.env.BASE_URL ;
+    const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+
+    const emailSubject = 'Verify Your Email Address';
+    const emailText = `Hello ${userName},\n\nPlease verify your email address by clicking on the following link:\n\n${verificationUrl}\n\nThis link will expire in 24 hours.\n\nIf you did not request this verification, please ignore this email.\n\nBest regards,\nBroker Adda Team`;
+    
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333;">Verify Your Email Address</h2>
+        <p>Hello ${userName},</p>
+        <p>Thank you for registering with Broker Adda. Please verify your email address by clicking on the button below:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${verificationUrl}" style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Verify Email</a>
+        </div>
+        <p>Or copy and paste this link into your browser:</p>
+        <p style="word-break: break-all; color: #666;">${verificationUrl}</p>
+        <p style="color: #999; font-size: 12px;">This link will expire in 24 hours.</p>
+        <p style="color: #999; font-size: 12px;">If you did not request this verification, please ignore this email.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #999; font-size: 12px;">Best regards,<br>Broker Adda Team</p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: userEmail,
+      subject: emailSubject,
+      text: emailText,
+      html: emailHtml
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Error sending verification email:', error);
+    return false;
+  }
+};
+
 
 const sendSMSNotification = async (userPhone, message) => {
   try {

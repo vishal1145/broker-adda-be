@@ -12,11 +12,12 @@ import Chat from '../models/Chat.js';
 import Message from '../models/Message.js';
 import Subscription from '../models/Subscription.js';
 import Lead from '../models/Lead.js';
-import { generateToken, generateOTP } from '../utils/jwt.js';
+import { generateToken, generateOTP, generateEmailVerificationToken } from '../utils/jwt.js';
 import { successResponse, errorResponse, serverError } from '../utils/response.js';
 import { getFileUrl } from '../middleware/upload.js';
 import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../utils/brokerCount.js';
 import { geocodeAddress } from '../utils/geocode.js';
+import { sendVerificationEmail, createNotification } from '../utils/notifications.js';
 
 // Temporary OTP storage (in production, use Redis)
 const tempOTPStorage = new Map();
@@ -159,7 +160,9 @@ export const adminLogin = async (req, res) => {
         name: admin.name,
         email: admin.email,
         role: admin.role,
-        status: admin.status
+        status: admin.status,
+        isEmailVerified: admin.isEmailVerified,
+        isPhoneVerified: admin.isPhoneVerified
       }
     });
 
@@ -380,7 +383,10 @@ export const verifyOTP = async (req, res) => {
           id: user._id,
           phone: user.phone,
           role: user.role,
-          status: user.status
+          status: user.status,
+          email: user.email,
+          isEmailVerified: user.isEmailVerified,
+          isPhoneVerified: user.isPhoneVerified
         }
       });
     }
@@ -501,7 +507,9 @@ export const verifyOTP = async (req, res) => {
             email: user.email,
             phone: user.phone,
             role: user.role,
-            status: user.status
+            status: user.status,
+            isEmailVerified: user.isEmailVerified,
+            isPhoneVerified: user.isPhoneVerified
           }
         });
       } else {
@@ -515,7 +523,10 @@ export const verifyOTP = async (req, res) => {
             id: user._id,
             phone: user.phone,
             role: user.role,
-            status: user.status
+            status: user.status,
+            email: user.email,
+            isEmailVerified: user.isEmailVerified,
+            isPhoneVerified: user.isPhoneVerified
           }
         });
       }
@@ -577,9 +588,20 @@ export const completeProfile = async (req, res) => {
     }
 
     // Update user basic info
+    const previousEmail = user.email;
     user.name = name;
     user.email = email;
-    user.isEmailVerified = true;
+    
+    // Don't auto-verify email - user must verify via email link
+    // If email is being changed or added for the first time, set verification to false
+    if (!previousEmail || previousEmail !== email) {
+      user.isEmailVerified = false;
+      // Clear any existing verification tokens when email changes
+      user.emailVerificationToken = null;
+      user.emailVerificationTokenExpiresAt = null;
+    }
+    // If email hasn't changed, keep the existing verification status
+    
     user.status = 'active';
     await user.save();
 
@@ -847,7 +869,9 @@ export const completeProfile = async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
-        status: user.status
+        status: user.status,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified
       }
     };
 
@@ -1077,7 +1101,9 @@ export const updateProfile = async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
-        status: user.status
+        status: user.status,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified
       }
     });
 
@@ -1274,6 +1300,133 @@ export const deleteAccount = async (req, res) => {
 
     return successResponse(res, 'Account deleted successfully', {
       message: 'Your account and all associated data have been permanently deleted'
+    });
+
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+// Send email verification
+export const sendEmailVerification = async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    
+    if (!userId) {
+      return errorResponse(res, 'Authentication required', 401);
+    }
+
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return errorResponse(res, 'User not found', 404);
+    }
+
+    if (!user.email) {
+      return errorResponse(res, 'Email address not found. Please add an email address to your profile first.', 400);
+    }
+
+    // Allow resending verification email even if already verified
+    // This allows users to verify again if they changed their email or want to resend
+    // Generate new verification token
+    const verificationToken = generateEmailVerificationToken();
+    const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Save token to user
+    user.emailVerificationToken = verificationToken;
+    user.emailVerificationTokenExpiresAt = tokenExpiresAt;
+    await user.save();
+
+    // Send verification email
+    const emailSent = await sendVerificationEmail(
+      user.email,
+      verificationToken,
+      user.name || 'User'
+    );
+
+    if (!emailSent) {
+      return errorResponse(res, 'Failed to send verification email. Please check your SMTP configuration.', 500);
+    }
+
+    return successResponse(res, 'Verification email sent successfully', {
+      message: 'Please check your email inbox and click on the verification link.',
+      email: user.email,
+      isEmailVerified: user.isEmailVerified
+    });
+
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+// Verify email with token
+export const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.query;
+
+    if (!token) {
+      return errorResponse(res, 'Verification token is required', 400);
+    }
+
+    // Find user with this token
+    const user = await User.findOne({
+      emailVerificationToken: token
+    });
+
+    if (!user) {
+      return errorResponse(res, 'Invalid or expired verification token', 400);
+    }
+
+    // Check if token expired
+    if (user.emailVerificationTokenExpiresAt && user.emailVerificationTokenExpiresAt < new Date()) {
+      // Clear expired token
+      user.emailVerificationToken = null;
+      user.emailVerificationTokenExpiresAt = null;
+      await user.save();
+      
+      return errorResponse(res, 'Verification token has expired. Please request a new verification email.', 400);
+    }
+
+    // Verify email
+    user.isEmailVerified = true;
+    user.emailVerificationToken = null;
+    user.emailVerificationTokenExpiresAt = null;
+    await user.save();
+
+    // Create notification for email verification
+    try {
+      await createNotification({
+        userId: user._id,
+        type: 'system',
+        title: 'Email Verified Successfully',
+        message: `Your email address ${user.email} has been verified successfully.`,
+        priority: 'medium',
+        relatedEntity: {
+          entityType: 'User',
+          entityId: user._id
+        },
+        activity: {
+          action: 'emailVerified',
+          actorId: user._id,
+          actorName: user.name || 'User'
+        },
+        metadata: {
+          email: user.email,
+          verifiedAt: new Date()
+        }
+      });
+    } catch (notifError) {
+      console.error('Error creating email verification notification:', notifError);
+      // Don't fail the request if notification fails
+    }
+
+    return successResponse(res, 'Email verified successfully', {
+      message: 'Your email has been verified successfully.',
+      user: {
+        id: user._id,
+        email: user.email,
+        isEmailVerified: user.isEmailVerified
+      }
     });
 
   } catch (error) {

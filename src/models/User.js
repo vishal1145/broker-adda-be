@@ -45,6 +45,14 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  emailVerificationToken: {
+    type: String,
+    default: null
+  },
+  emailVerificationTokenExpiresAt: {
+    type: Date,
+    default: null
+  },
   isPhoneVerified: {
     type: Boolean,
     default: false
@@ -98,6 +106,7 @@ userSchema.methods.toJSON = function() {
   delete userObject.otp;
   delete userObject.token;
   delete userObject.tokenExpiresAt;
+  delete userObject.emailVerificationToken;
   return userObject;
 };
 
