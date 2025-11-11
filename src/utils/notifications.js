@@ -20,7 +20,11 @@ const sendEmailNotification = async (userEmail, title, message) => {
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS
-      }
+      },
+      connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 seconds (default was 2 seconds)
+      greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 seconds
+      socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 30000, // 30 seconds
+      requireTLS: true // Require TLS for secure connection
     });
 
     // Only send if SMTP is configured
@@ -29,7 +33,7 @@ const sendEmailNotification = async (userEmail, title, message) => {
       return false;
     }
 
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: userEmail,
       subject: title,
@@ -37,9 +41,18 @@ const sendEmailNotification = async (userEmail, title, message) => {
       html: `<p>${message}</p>`
     });
 
+    console.log(`Email notification sent successfully to ${userEmail}. Message ID: ${info.messageId}`);
     return true;
   } catch (error) {
     console.error('Error sending email notification:', error);
+    console.error('Error details:', {
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode,
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: process.env.SMTP_PORT || 587
+    });
     return false;
   }
 };
