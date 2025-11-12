@@ -23,7 +23,15 @@ const brokerDetailSchema = new mongoose.Schema({
   },
   whatsappNumber: {
     type: String,
-    match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid WhatsApp number']
+    validate: {
+      validator: function(v) {
+        // Allow empty string, null, or undefined
+        if (!v || v === '') return true;
+        // If value exists, validate against pattern
+        return /^\+?[1-9]\d{1,14}$/.test(v);
+      },
+      message: 'Please enter a valid WhatsApp number'
+    }
   },
   gender: {
     type: String,

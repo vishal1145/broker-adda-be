@@ -17,7 +17,7 @@ export const brokerUpdateSchema = Joi.object({
   name: Joi.string().trim().max(50).optional(),
   email: Joi.string().email().optional(),
   phone: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional(),
-  whatsappNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional(),
+  whatsappNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional().allow('', null),
   gender: Joi.string().valid('male', 'female', 'other').optional(),
   firmName: Joi.string().trim().max(100).optional(),
   licenseNumber: Joi.string().trim().max(50).optional(),
