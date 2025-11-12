@@ -1273,6 +1273,7 @@ export const getLeadMetrics = async (req, res) => {
       totalLeadsPercentageChange: totalLeadsPercentage,
       newLeadsToday,
       convertedLeads,
+      closedLeads: convertedLeads, // Explicit closed leads count
       averageDealSize,
       transfersToMe,
       transfersByMe,
