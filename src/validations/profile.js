@@ -19,7 +19,7 @@ export const completeProfileSchema = Joi.object({
     address: Joi.string().optional().max(500).trim(),
     state: Joi.string().optional().max(50).trim(),
     city: Joi.string().optional().max(50).trim(),
-    whatsappNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional(),
+    whatsappNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional().allow('', null),
     specializations: Joi.array().items(
       Joi.string().max(100).trim().allow('', null)
     ).optional().allow(null),
