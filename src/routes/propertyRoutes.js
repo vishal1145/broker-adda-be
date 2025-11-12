@@ -12,7 +12,7 @@ import {
 } from "../controllers/propertyController.js";
 import { validate } from "../middleware/validation.js";
 import { validateCreateProperty, validateUpdateProperty } from "../validations/property.js"
-import { uploadPropertyMedia, handleUploadError } from "../middleware/upload.js";
+import { uploadPropertyMedia, handleUploadError, normalizePropertyMedia } from "../middleware/upload.js";
 import { authenticate } from "../middleware/auth.js";
 
 
@@ -35,7 +35,7 @@ router.patch("/:id/approve", authenticate, approveProperty);
 router.patch("/:id/reject", authenticate, rejectProperty);
 
 // Update and delete routes (authenticated - broker can update/delete their own, admin can do all)
-router.put("/:id", authenticate, uploadPropertyMedia, handleUploadError, validateUpdateProperty, updateProperty);
+router.put("/:id", authenticate, uploadPropertyMedia, handleUploadError, normalizePropertyMedia, validateUpdateProperty, updateProperty);
 router.delete("/:id", authenticate, deleteProperty);
 
 export default router;

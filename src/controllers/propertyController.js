@@ -666,6 +666,11 @@ export const updateProperty = async (req, res) => {
     Object.keys(updateData).forEach(key => {
       if (updateData[key] !== undefined) {
         existingProperty[key] = updateData[key];
+        // Explicitly mark array fields as modified when set to empty arrays
+        // This ensures Mongoose properly tracks and persists empty array changes
+        if ((key === 'images' || key === 'videos') && Array.isArray(updateData[key]) && updateData[key].length === 0) {
+          existingProperty.markModified(key);
+        }
       }
     });
     existingProperty.updatedAt = new Date();

@@ -102,6 +102,52 @@ export const uploadPropertyMedia = upload.fields([
   { name: 'videos[]', maxCount: 5 }
 ]);
 
+// Normalize images/videos fields before validation
+// This handles cases where multipart/form-data sends empty strings or invalid values
+export const normalizePropertyMedia = (req, res, next) => {
+  // Normalize images field
+  if (req.body.images !== undefined) {
+    if (!Array.isArray(req.body.images)) {
+      // If it's not an array, check if it's a valid value that can be converted
+      if (req.body.images === null || req.body.images === '' || req.body.images === '[]') {
+        // Treat as empty array (explicit removal)
+        req.body.images = [];
+      } else if (typeof req.body.images === 'string') {
+        // Single string value, convert to array
+        req.body.images = [req.body.images];
+      } else {
+        // Invalid type, remove from body to preserve existing (field not provided)
+        delete req.body.images;
+      }
+    }
+  } else {
+    // Field not provided, ensure it's removed to avoid validation issues
+    delete req.body.images;
+  }
+
+  // Normalize videos field
+  if (req.body.videos !== undefined) {
+    if (!Array.isArray(req.body.videos)) {
+      // If it's not an array, check if it's a valid value that can be converted
+      if (req.body.videos === null || req.body.videos === '' || req.body.videos === '[]') {
+        // Treat as empty array (explicit removal)
+        req.body.videos = [];
+      } else if (typeof req.body.videos === 'string') {
+        // Single string value, convert to array
+        req.body.videos = [req.body.videos];
+      } else {
+        // Invalid type, remove from body to preserve existing (field not provided)
+        delete req.body.videos;
+      }
+    }
+  } else {
+    // Field not provided, ensure it's removed to avoid validation issues
+    delete req.body.videos;
+  }
+
+  next();
+};
+
 // Error handling middleware
 export const handleUploadError = (error, req, res, next) => {
   if (error instanceof multer.MulterError) {
