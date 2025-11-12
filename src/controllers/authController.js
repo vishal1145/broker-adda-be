@@ -1255,7 +1255,7 @@ export const adminCreateBroker = async (req, res) => {
     if (byEmail) return errorResponse(res, `Email ${email} is already registered as ${byEmail.role}.`, 409);
     
      const DEFAULT_BROKER_AVATAR =
-      process.env.DEFAULT_BROKER_AVATAR || 'https://www.w3schools.com/howto/img_avatar.png';
+      'https://www.vhv.rs/dpng/d/312-3120300_default-profile-hd-png-download.png';
 
     const finalProfileImage =
       (typeof image === 'string' && image.trim()) ||
@@ -1282,7 +1282,7 @@ export const adminCreateBroker = async (req, res) => {
       name: user.name,
       email: user.email,
       phone: user.phone,
-      profileImage: finalProfileImage,
+      brokerImage: finalProfileImage,
     });
 
     // Create notifications for broker creation (non-blocking - fire and forget)
