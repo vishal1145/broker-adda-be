@@ -2252,7 +2252,7 @@ export const getLeadsByMonth = async (req, res) => {
       $lte: endDate
     };
 
-    // Aggregate leads by month
+    // Aggregate leads by month (total count)
     const leadsByMonth = await Lead.aggregate([
       { $match: matchFilter },
       {
@@ -2274,6 +2274,29 @@ export const getLeadsByMonth = async (req, res) => {
       }
     ]);
 
+    // Aggregate closed leads by month
+    const closedLeadsFilter = { ...matchFilter, status: 'Closed' };
+    const closedLeadsByMonth = await Lead.aggregate([
+      { $match: closedLeadsFilter },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          closedCount: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          year: '$_id.year',
+          month: '$_id.month',
+          closedCount: 1
+        }
+      }
+    ]);
+
     // Generate all 12 months (Jan-Dec) for the target year
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const allMonths = [];
@@ -2286,7 +2309,8 @@ export const getLeadsByMonth = async (req, res) => {
         month: month,
         monthName: monthNames[month - 1],
         monthLabel: monthLabel,
-        count: 0
+        count: 0,
+        closedCount: 0
       });
     }
 
@@ -2297,13 +2321,21 @@ export const getLeadsByMonth = async (req, res) => {
       dataMap.set(key, item.count);
     });
 
+    // Create a map of closed leads data for quick lookup
+    const closedDataMap = new Map();
+    closedLeadsByMonth.forEach(item => {
+      const key = `${item.year}-${item.month.toString().padStart(2, '0')}`;
+      closedDataMap.set(key, item.closedCount);
+    });
+
     // Merge data - fill in counts from aggregated data, keep 0 for missing months
     const result = allMonths.map(month => ({
       year: month.year,
       month: month.month,
       monthName: month.monthName,
       monthLabel: month.monthLabel,
-      count: dataMap.get(month.monthLabel) || 0
+      count: dataMap.get(month.monthLabel) || 0,
+      closedCount: closedDataMap.get(month.monthLabel) || 0
     }));
 
     return successResponse(res, 'Leads by month retrieved successfully', result);
