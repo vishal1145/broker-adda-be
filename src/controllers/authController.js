@@ -336,6 +336,66 @@ export const verifyOTP = async (req, res) => {
         await brokerDetail.save();
         roleDetails = brokerDetail;
         console.log('Broker details created during registration OTP verification');
+
+        // Create notifications for broker creation (non-blocking - fire and forget)
+        // Notification to broker
+        createNotification({
+          userId: user._id,
+          type: 'approval',
+          title: 'Broker Account Created',
+          message: 'Your broker account has been successfully created. Please complete your profile to get started.',
+          priority: 'high',
+          relatedEntity: {
+            entityType: 'BrokerDetail',
+            entityId: brokerDetail._id
+          },
+          activity: {
+            action: 'created',
+            actorId: user._id,
+            actorName: user.name || 'You'
+          },
+          metadata: {
+            brokerId: brokerDetail._id,
+            status: 'pending'
+          }
+        }).catch(notifError => {
+          console.error('Error creating broker creation notification to broker:', notifError);
+        });
+
+        // Notify all admin users
+        User.find({ role: 'admin' })
+          .select('_id name email')
+          .then(admins => {
+            admins.forEach(admin => {
+              createNotification({
+                userId: admin._id,
+                type: 'approval',
+                title: 'New Broker Registration',
+                message: `A new broker account has been created${user.name ? ` by ${user.name}` : ''}${user.phone ? ` (${user.phone})` : ''}. Please review and approve.`,
+                priority: 'medium',
+                relatedEntity: {
+                  entityType: 'BrokerDetail',
+                  entityId: brokerDetail._id
+                },
+                activity: {
+                  action: 'brokerCreated',
+                  actorId: user._id,
+                  actorName: user.name || 'New Broker'
+                },
+                metadata: {
+                  brokerId: brokerDetail._id,
+                  brokerName: user.name,
+                  brokerPhone: user.phone,
+                  brokerEmail: user.email
+                }
+              }).catch(notifError => {
+                console.error(`Error creating broker creation notification to admin ${admin._id}:`, notifError);
+              });
+            });
+          })
+          .catch(error => {
+            console.error('Error fetching admin users for broker creation notification:', error);
+          });
       }
 
       if (user.role === 'customer') {
@@ -1217,14 +1277,102 @@ export const adminCreateBroker = async (req, res) => {
     });
 
     // (optional) If your BrokerDetail model has ONLY these 3-4 fields, keep it minimal
-    await BrokerDetail.create({
+    const brokerDetail = await BrokerDetail.create({
       userId: user._id,
       name: user.name,
       email: user.email,
       phone: user.phone,
-    profileImage: finalProfileImage,
-   
+      profileImage: finalProfileImage,
     });
+
+    // Create notifications for broker creation (non-blocking - fire and forget)
+    // Notification to broker
+    createNotification({
+      userId: user._id,
+      type: 'approval',
+      title: 'Broker Account Created',
+      message: `Your broker account has been successfully created by admin${req.user?.name ? ` (${req.user.name})` : ''}. Welcome to Broker Adda!`,
+      priority: 'high',
+      relatedEntity: {
+        entityType: 'BrokerDetail',
+        entityId: brokerDetail._id
+      },
+      activity: {
+        action: 'created',
+        actorId: req.user?._id || null,
+        actorName: req.user?.name || 'Admin'
+      },
+      metadata: {
+        brokerId: brokerDetail._id,
+        status: 'active',
+        createdBy: 'admin'
+      }
+    }).catch(notifError => {
+      console.error('Error creating broker creation notification to broker:', notifError);
+    });
+
+    // Notification to admin who created the broker
+    if (req.user?._id) {
+      createNotification({
+        userId: req.user._id,
+        type: 'approval',
+        title: 'Broker Account Created',
+        message: `Broker account for ${user.name || user.email || user.phone} has been successfully created.`,
+        priority: 'medium',
+        relatedEntity: {
+          entityType: 'BrokerDetail',
+          entityId: brokerDetail._id
+        },
+        activity: {
+          action: 'brokerCreated',
+          actorId: req.user._id,
+          actorName: req.user?.name || 'Admin'
+        },
+        metadata: {
+          brokerId: brokerDetail._id,
+          brokerName: user.name,
+          brokerPhone: user.phone,
+          brokerEmail: user.email
+        }
+      }).catch(notifError => {
+        console.error('Error creating broker creation notification to admin:', notifError);
+      });
+    }
+
+    // Notify all other admin users (excluding the one who created)
+    User.find({ role: 'admin', _id: { $ne: req.user?._id } })
+      .select('_id name email')
+      .then(admins => {
+        admins.forEach(admin => {
+          createNotification({
+            userId: admin._id,
+            type: 'approval',
+            title: 'New Broker Created by Admin',
+            message: `A new broker account has been created${req.user?.name ? ` by ${req.user.name}` : ' by admin'}${user.name ? ` for ${user.name}` : ''}${user.phone ? ` (${user.phone})` : ''}.`,
+            priority: 'low',
+            relatedEntity: {
+              entityType: 'BrokerDetail',
+              entityId: brokerDetail._id
+            },
+            activity: {
+              action: 'brokerCreated',
+              actorId: req.user?._id || null,
+              actorName: req.user?.name || 'Admin'
+            },
+            metadata: {
+              brokerId: brokerDetail._id,
+              brokerName: user.name,
+              brokerPhone: user.phone,
+              brokerEmail: user.email
+            }
+          }).catch(notifError => {
+            console.error(`Error creating broker creation notification to admin ${admin._id}:`, notifError);
+          });
+        });
+      })
+      .catch(error => {
+        console.error('Error fetching admin users for broker creation notification:', error);
+      });
 
     return successResponse(
       res,

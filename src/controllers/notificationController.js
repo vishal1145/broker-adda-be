@@ -33,11 +33,25 @@ export const getAllNotifications = async (req, res) => {
     }
 
     if (type) {
-      query.type = type;
+      // Special handling for 'lead' type - include both 'lead' and 'transfer' notifications
+      if (type === 'lead') {
+        query.type = { $in: ['lead', 'transfer'] };
+      }
+      // Special handling for 'broker' type - include 'approval' notifications related to BrokerDetail
+      else if (type === 'broker') {
+        query.type = 'approval';
+        query['relatedEntity.entityType'] = 'BrokerDetail';
+      }
+      else {
+        query.type = type;
+      }
     }
 
     if (entityType) {
-      query['relatedEntity.entityType'] = entityType;
+      // Don't override entityType if it was already set by broker type filter
+      if (!(type === 'broker' && entityType === 'BrokerDetail')) {
+        query['relatedEntity.entityType'] = entityType;
+      }
     }
 
     if (entityId) {
@@ -163,11 +177,25 @@ export const getRecentActivityNotifications = async (req, res) => {
     };
 
     if (type) {
-      query.type = type;
+      // Special handling for 'lead' type - include both 'lead' and 'transfer' notifications
+      if (type === 'lead') {
+        query.type = { $in: ['lead', 'transfer'] };
+      }
+      // Special handling for 'broker' type - include 'approval' notifications related to BrokerDetail
+      else if (type === 'broker') {
+        query.type = 'approval';
+        query['relatedEntity.entityType'] = 'BrokerDetail';
+      }
+      else {
+        query.type = type;
+      }
     }
 
     if (entityType) {
-      query['relatedEntity.entityType'] = entityType;
+      // Don't override entityType if it was already set by broker type filter
+      if (!(type === 'broker' && entityType === 'BrokerDetail')) {
+        query['relatedEntity.entityType'] = entityType;
+      }
     }
 
     // Get recent notifications
@@ -375,11 +403,25 @@ export const adminGetAllNotifications = async (req, res) => {
     }
 
     if (type) {
-      query.type = type;
+      // Special handling for 'lead' type - include both 'lead' and 'transfer' notifications
+      if (type === 'lead') {
+        query.type = { $in: ['lead', 'transfer'] };
+      }
+      // Special handling for 'broker' type - include 'approval' notifications related to BrokerDetail
+      else if (type === 'broker') {
+        query.type = 'approval';
+        query['relatedEntity.entityType'] = 'BrokerDetail';
+      }
+      else {
+        query.type = type;
+      }
     }
 
     if (entityType) {
-      query['relatedEntity.entityType'] = entityType;
+      // Don't override entityType if it was already set by broker type filter
+      if (!(type === 'broker' && entityType === 'BrokerDetail')) {
+        query['relatedEntity.entityType'] = entityType;
+      }
     }
 
     // Get notifications with pagination - only essential fields
@@ -560,11 +602,25 @@ export const adminGetRecentActivity = async (req, res) => {
     }
 
     if (type) {
-      query.type = type;
+      // Special handling for 'lead' type - include both 'lead' and 'transfer' notifications
+      if (type === 'lead') {
+        query.type = { $in: ['lead', 'transfer'] };
+      }
+      // Special handling for 'broker' type - include 'approval' notifications related to BrokerDetail
+      else if (type === 'broker') {
+        query.type = 'approval';
+        query['relatedEntity.entityType'] = 'BrokerDetail';
+      }
+      else {
+        query.type = type;
+      }
     }
 
     if (entityType) {
-      query['relatedEntity.entityType'] = entityType;
+      // Don't override entityType if it was already set by broker type filter
+      if (!(type === 'broker' && entityType === 'BrokerDetail')) {
+        query['relatedEntity.entityType'] = entityType;
+      }
     }
 
     // Get recent notifications - only essential fields
@@ -728,11 +784,25 @@ export const adminMarkAllAsRead = async (req, res) => {
     }
 
     if (type) {
-      query.type = type;
+      // Special handling for 'lead' type - include both 'lead' and 'transfer' notifications
+      if (type === 'lead') {
+        query.type = { $in: ['lead', 'transfer'] };
+      }
+      // Special handling for 'broker' type - include 'approval' notifications related to BrokerDetail
+      else if (type === 'broker') {
+        query.type = 'approval';
+        query['relatedEntity.entityType'] = 'BrokerDetail';
+      }
+      else {
+        query.type = type;
+      }
     }
 
     if (entityType) {
-      query['relatedEntity.entityType'] = entityType;
+      // Don't override entityType if it was already set by broker type filter
+      if (!(type === 'broker' && entityType === 'BrokerDetail')) {
+        query['relatedEntity.entityType'] = entityType;
+      }
     }
 
     if (days) {
