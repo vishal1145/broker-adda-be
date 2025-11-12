@@ -78,6 +78,10 @@ export const brokerQuerySchema = Joi.object({
   minRating: Joi.number().integer().min(1).max(5).optional(),
   maxRating: Joi.number().integer().min(1).max(5).optional(),
   specialization: Joi.string().trim().optional(),
+  // Geospatial filters
+  latitude: Joi.number().min(-90).max(90).optional(),
+  longitude: Joi.number().min(-180).max(180).optional(),
+  radius: Joi.number().positive().optional(), // radius in kilometers
   // Sorting parameters
   sortBy: Joi.string().valid('rating', 'createdAt', 'name', 'firmName', 'experience.years').optional(),
   sortOrder: Joi.string().valid('asc', 'desc').optional()

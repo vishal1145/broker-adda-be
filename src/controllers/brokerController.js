@@ -31,7 +31,10 @@ export const getAllBrokers = async (req, res) => {
       rating,
       specialization,
       sortBy,
-      sortOrder
+      sortOrder,
+      latitude,
+      longitude,
+      radius // in kilometers, default 50km if not provided
     } = req.query;
 
     // Build filter object
@@ -109,8 +112,42 @@ export const getAllBrokers = async (req, res) => {
       ];
     }
 
-    // Calculate pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    // Geospatial filtering by latitude/longitude
+    let geospatialQuery = null;
+    let userLat = null;
+    let userLng = null;
+    if (latitude && longitude) {
+      userLat = parseFloat(latitude);
+      userLng = parseFloat(longitude);
+      const radiusKm = radius ? parseFloat(radius) : 50; // Default 50km radius
+
+      // Validate coordinates
+      if (isNaN(userLat) || isNaN(userLng) || userLat < -90 || userLat > 90 || userLng < -180 || userLng > 180) {
+        return errorResponse(res, 'Invalid latitude or longitude values', 400);
+      }
+
+      // Use $geoWithin with $centerSphere instead of $near to avoid sorting conflicts
+      // $centerSphere requires radius in radians: radiusInRadians = radiusInKm / 6378.1
+      // NOTE: The data is stored as [latitude, longitude] instead of GeoJSON standard [longitude, latitude]
+      // This is due to how coordinates are saved in authController.js (line 882)
+      // So we use [userLat, userLng] to match the stored format
+      const radiusInRadians = radiusKm / 6378.1; // Earth's radius in km
+      geospatialQuery = {
+        location: {
+          $geoWithin: {
+            $centerSphere: [
+              [userLat, userLng], // [latitude, longitude] - matching stored format
+              radiusInRadians
+            ]
+          }
+        }
+      };
+    }
+
+    // Calculate pagination (only if page/limit are provided)
+    const pageNum = page ? parseInt(page) : null;
+    const limitNum = limit ? parseInt(limit) : null;
+    const skip = (pageNum && limitNum) ? (pageNum - 1) * limitNum : 0;
 
     // Build sort object
     let sort = { createdAt: -1 }; // Default sort
@@ -126,40 +163,170 @@ export const getAllBrokers = async (req, res) => {
       sort = { createdAt: order };
     }
 
+    // Combine regular filter with geospatial query if provided
+    // NOTE: Since coordinates are stored as [lat, lng] instead of GeoJSON [lng, lat],
+    // MongoDB's geospatial queries won't work correctly. We'll fetch all brokers
+    // with location data and filter manually by distance.
+    let finalFilter = filter;
+    
+    // Add location exists filter if geospatial query is needed
+    if (geospatialQuery && userLat !== null && userLng !== null) {
+      finalFilter = {
+        ...filter,
+        'location.coordinates': { $exists: true, $ne: null, $size: 2 }
+      };
+    }
+
     // Get brokers with populated region data
-    const brokers = await BrokerDetail.find(filter)
-      .populate('region', 'name description city state centerLocation radius')
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit));
+    // If geospatial filtering, fetch all matching brokers (no limit unless pagination is requested)
+    // Otherwise, apply pagination at database level
+    let brokers;
+    if (geospatialQuery && userLat !== null && userLng !== null) {
+      // For geospatial queries, fetch all brokers with location (no pagination limit)
+      brokers = await BrokerDetail.find(finalFilter)
+        .populate('region', 'name description city state centerLocation radius')
+        .sort({}); // Don't sort at DB level, we'll sort by distance
+    } else {
+      // For non-geospatial queries, apply pagination at database level
+      const dbLimit = limitNum || 100; // Default limit for non-geospatial queries
+      brokers = await BrokerDetail.find(finalFilter)
+        .populate('region', 'name description city state centerLocation radius')
+        .sort(sort)
+        .skip(skip)
+        .limit(dbLimit);
+    }
+
+    // If geospatial query is used, filter manually by distance
+    // This is necessary because coordinates are stored as [lat, lng] instead of [lng, lat]
+    if (geospatialQuery && userLat !== null && userLng !== null) {
+      const radiusKm = radius ? parseFloat(radius) : 50;
+      
+      // Helper function to calculate distance in km using Haversine formula
+      const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
+        const R = 6371; // Earth's radius in km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      };
+
+      // Filter brokers by distance and add distance field
+      // Preserve populated fields (like region) when converting to objects
+      const brokersWithDistance = [];
+      for (const broker of brokers) {
+        // Convert to object while preserving populated fields
+        const brokerObj = broker.toObject ? broker.toObject({ virtuals: true }) : broker;
+        
+        if (brokerObj.location && brokerObj.location.coordinates && Array.isArray(brokerObj.location.coordinates) && brokerObj.location.coordinates.length === 2) {
+          // NOTE: Coordinates are stored as [latitude, longitude] not [longitude, latitude]
+          const [brokerLat, brokerLng] = brokerObj.location.coordinates; // [lat, lng]
+          
+          // Validate coordinates
+          if (isNaN(brokerLat) || isNaN(brokerLng) || !isFinite(brokerLat) || !isFinite(brokerLng)) {
+            continue; // Skip invalid coordinates
+          }
+          
+          const distance = calculateDistanceKm(userLat, userLng, brokerLat, brokerLng);
+          
+          if (distance <= radiusKm) {
+            // Add distance property to the broker object
+            brokerObj.distanceKm = Number(distance.toFixed(3));
+            // Ensure _id is preserved as string for easier handling
+            if (brokerObj._id && typeof brokerObj._id.toString === 'function') {
+              brokerObj._id = brokerObj._id.toString();
+            }
+            brokersWithDistance.push(brokerObj);
+          }
+        }
+      }
+      brokers = brokersWithDistance;
+
+      // Sort by distance if geospatial query is used (unless another sort is specified)
+      if (!sortBy || sortBy === 'createdAt') {
+        brokers.sort((a, b) => {
+          const distA = a.distanceKm || Infinity;
+          const distB = b.distanceKm || Infinity;
+          return distA - distB;
+        });
+      }
+
+      // Apply pagination after distance filtering (only if pagination parameters are provided)
+      if (pageNum && limitNum) {
+        brokers = brokers.slice(skip, skip + limitNum);
+      }
+    }
 
     // Get total count for pagination
-    const totalBrokers = await BrokerDetail.countDocuments(filter);
-    const totalPages = Math.ceil(totalBrokers / parseInt(limit));
+    // If we filtered manually by distance, we need to count manually too
+    let totalBrokers;
+    if (geospatialQuery && userLat !== null && userLng !== null) {
+      // Count all brokers with location that match other filters
+      const allBrokersWithLocation = await BrokerDetail.find({
+        ...filter,
+        'location.coordinates': { $exists: true, $ne: null, $size: 2 }
+      }).select('location').lean();
+      
+      const radiusKm = radius ? parseFloat(radius) : 50;
+      const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      };
+      
+      totalBrokers = allBrokersWithLocation.filter(broker => {
+        if (broker.location && broker.location.coordinates && broker.location.coordinates.length === 2) {
+          const [brokerLat, brokerLng] = broker.location.coordinates;
+          const distance = calculateDistanceKm(userLat, userLng, brokerLat, brokerLng);
+          return distance <= radiusKm;
+        }
+        return false;
+      }).length;
+    } else {
+      totalBrokers = await BrokerDetail.countDocuments(finalFilter);
+    }
+    const totalPages = limitNum ? Math.ceil(totalBrokers / limitNum) : 1;
 
     // Get blocked and unblocked counts (without filters for overall stats)
     const totalBlockedBrokers = await BrokerDetail.countDocuments({ approvedByAdmin: 'blocked' });
     const totalUnblockedBrokers = await BrokerDetail.countDocuments({ approvedByAdmin: 'unblocked' });
 
     // Prepare lead/property stats and property lists for each broker
-    const brokerIds = brokers.map(b => b._id);
+    const brokerIds = brokers.map(b => {
+      // Handle both Mongoose documents and plain objects
+      if (b && b._id) return b._id;
+      if (b && b.toObject && typeof b.toObject === 'function') {
+        const obj = b.toObject();
+        if (obj && obj._id) return obj._id;
+      }
+      return null;
+    }).filter(id => id !== null); // Remove null entries
+    
+    // Only fetch lead/property stats if we have brokers
     const [leadCountsAgg, leadsBasic, propertyCountsAgg, brokerProperties, ratingStatsAgg] = await Promise.all([
-      Lead.aggregate([
+      brokerIds.length > 0 ? Lead.aggregate([
         { $match: { createdBy: { $in: brokerIds } } },
         { $group: { _id: '$createdBy', count: { $sum: 1 } } }
-      ]),
-      Lead.find({ createdBy: { $in: brokerIds } })
+      ]) : Promise.resolve([]),
+      brokerIds.length > 0 ? Lead.find({ createdBy: { $in: brokerIds } })
         .select('customerName customerEmail customerPhone requirement propertyType budget status primaryRegion secondaryRegion createdAt updatedAt createdBy')
-        .lean(),
-      Property.aggregate([
+        .lean() : Promise.resolve([]),
+      brokerIds.length > 0 ? Property.aggregate([
         { $match: { broker: { $in: brokerIds } } },
         { $group: { _id: '$broker', count: { $sum: 1 } } }
-      ]),
-      Property.find({ broker: { $in: brokerIds } })
+      ]) : Promise.resolve([]),
+      brokerIds.length > 0 ? Property.find({ broker: { $in: brokerIds } })
         .select('_id title price priceUnit images status createdAt broker')
         .sort({ createdAt: -1 })
-        .lean(),
-      BrokerRating.aggregate([
+        .lean() : Promise.resolve([]),
+      brokerIds.length > 0 ? BrokerRating.aggregate([
         { $match: { brokerId: { $in: brokerIds } } },
         {
           $group: {
@@ -168,7 +335,7 @@ export const getAllBrokers = async (req, res) => {
             totalRatings: { $sum: 1 }
           }
         }
-      ])
+      ]) : Promise.resolve([])
     ]);
     const brokerIdToLeadCount = new Map(leadCountsAgg.map(x => [String(x._id), x.count]));
     const brokerIdToPropertyCount = new Map(propertyCountsAgg.map(x => [String(x._id), x.count]));
@@ -219,7 +386,8 @@ export const getAllBrokers = async (req, res) => {
 
     // Convert file paths to URLs and attach lead stats
     const brokersWithUrlsPromises = brokers.map(async broker => {
-      const brokerObj = broker.toObject();
+      // If broker is already an object (from geospatial processing), use it directly
+      const brokerObj = broker.toObject ? broker.toObject() : broker;
      
       // Convert kycDocs file paths to URLs
       if (brokerObj.kycDocs) {
@@ -273,14 +441,17 @@ export const getAllBrokers = async (req, res) => {
 
     const brokersWithUrls = await Promise.all(brokersWithUrlsPromises);
 
+    // Use the already parsed page number (or null if no pagination)
+    const currentPage = pageNum || 1;
+    
     return successResponse(res, 'Brokers retrieved successfully', {
       brokers: brokersWithUrls,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages,
+        currentPage,
+        totalPages: totalPages || 1,
         totalBrokers,
-        hasNextPage: parseInt(page) < totalPages,
-        hasPrevPage: parseInt(page) > 1
+        hasNextPage: pageNum && limitNum ? currentPage < totalPages : false,
+        hasPrevPage: pageNum && limitNum ? currentPage > 1 : false
       },
       stats: {
         totalBlockedBrokers,
