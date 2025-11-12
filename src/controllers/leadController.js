@@ -1268,12 +1268,18 @@ export const getLeadMetrics = async (req, res) => {
     const transfersToMe = Array.isArray(transfersToMeAgg) && transfersToMeAgg.length > 0 ? transfersToMeAgg[0].count : 0;
     const transfersByMe = Array.isArray(transfersByMeAgg) && transfersByMeAgg.length > 0 ? transfersByMeAgg[0].count : 0;
 
+    // Calculate closed leads percentage
+    const closedLeadsPercentage = totalLeads > 0 
+      ? Math.round((convertedLeads / totalLeads) * 100 * 10) / 10 // Round to 1 decimal place
+      : 0;
+
     return successResponse(res, 'Lead metrics retrieved successfully', {
       totalLeads,
       totalLeadsPercentageChange: totalLeadsPercentage,
       newLeadsToday,
       convertedLeads,
       closedLeads: convertedLeads, // Explicit closed leads count
+      closedLeadsPercentage, // Percentage of closed leads out of total leads
       averageDealSize,
       transfersToMe,
       transfersByMe,
