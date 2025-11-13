@@ -173,19 +173,10 @@ export const getAllBrokers = async (req, res) => {
       sort = { createdAt: order };
     }
 
-    // Combine regular filter with location filter if coordinates are provided
-    // NOTE: Since coordinates are stored as [lat, lng] instead of GeoJSON [lng, lat],
-    // MongoDB's geospatial queries won't work correctly. We'll fetch all brokers
-    // with location data and filter manually by distance.
+    // Combine regular filter - don't filter by location when coordinates are provided
+    // We'll fetch all brokers and calculate distance for those with coordinates
+    // Brokers without coordinates will be included at the end (if no radius filter)
     let finalFilter = filter;
-    
-    // Add location exists filter if coordinates are provided (for distance calculation)
-    if (userLat !== null && userLng !== null) {
-      finalFilter = {
-        ...filter,
-        'location.coordinates': { $exists: true, $ne: null, $size: 2 }
-      };
-    }
 
     // Helper function to calculate distance in km using Haversine formula
     const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
@@ -209,13 +200,16 @@ export const getAllBrokers = async (req, res) => {
         .populate('region', 'name description city state centerLocation radius')
         .sort({}); // Don't sort at DB level, we'll sort by distance
     } else {
-      // For non-geospatial queries, apply pagination at database level
-      const dbLimit = limitNum || 100; // Default limit for non-geospatial queries
-      brokers = await BrokerDetail.find(finalFilter)
+      // For non-geospatial queries, apply pagination at database level (only if pagination is provided)
+      let brokersQuery = BrokerDetail.find(finalFilter)
         .populate('region', 'name description city state centerLocation radius')
-        .sort(sort)
-        .skip(skip)
-        .limit(dbLimit);
+        .sort(sort);
+      
+      if (pageNum && limitNum) {
+        brokersQuery = brokersQuery.skip(skip).limit(limitNum);
+      }
+      
+      brokers = await brokersQuery;
     }
 
     // If coordinates are provided, calculate distance for all brokers and filter by radius if provided
@@ -224,9 +218,16 @@ export const getAllBrokers = async (req, res) => {
       // Calculate distance for all brokers and add distance field
       // Preserve populated fields (like region) when converting to objects
       const brokersWithDistance = [];
+      const brokersWithoutCoordinates = [];
+      
       for (const broker of brokers) {
         // Convert to object while preserving populated fields
         const brokerObj = broker.toObject ? broker.toObject({ virtuals: true }) : broker;
+        
+        // Ensure _id is preserved as string for easier handling
+        if (brokerObj._id && typeof brokerObj._id.toString === 'function') {
+          brokerObj._id = brokerObj._id.toString();
+        }
         
         if (brokerObj.location && brokerObj.location.coordinates && Array.isArray(brokerObj.location.coordinates) && brokerObj.location.coordinates.length === 2) {
           // NOTE: Coordinates are stored as [latitude, longitude] not [longitude, latitude]
@@ -234,7 +235,11 @@ export const getAllBrokers = async (req, res) => {
           
           // Validate coordinates
           if (isNaN(brokerLat) || isNaN(brokerLng) || !isFinite(brokerLat) || !isFinite(brokerLng)) {
-            continue; // Skip invalid coordinates
+            // Invalid coordinates - include without distance if no radius filter
+            if (radiusKm === null) {
+              brokersWithoutCoordinates.push(brokerObj);
+            }
+            continue;
           }
           
           const distance = calculateDistanceKm(userLat, userLng, brokerLat, brokerLng);
@@ -244,14 +249,18 @@ export const getAllBrokers = async (req, res) => {
           if (radiusKm === null || distance <= radiusKm) {
             // Add distance property to the broker object
             brokerObj.distanceKm = Number(distance.toFixed(3));
-            // Ensure _id is preserved as string for easier handling
-            if (brokerObj._id && typeof brokerObj._id.toString === 'function') {
-              brokerObj._id = brokerObj._id.toString();
-            }
             brokersWithDistance.push(brokerObj);
+          }
+        } else {
+          // No coordinates - include without distance if no radius filter
+          // (If radius is provided, we can't calculate distance, so exclude them)
+          if (radiusKm === null) {
+            brokersWithoutCoordinates.push(brokerObj);
           }
         }
       }
+      
+      // Combine brokers: those with distance first (sorted), then those without coordinates
       brokers = brokersWithDistance;
 
       // Always sort by distance in ascending order when coordinates are provided
@@ -263,6 +272,9 @@ export const getAllBrokers = async (req, res) => {
           return distA - distB; // Ascending order (closest first)
         });
       }
+      
+      // Append brokers without coordinates at the end (they don't have distance)
+      brokers = [...brokers, ...brokersWithoutCoordinates];
 
       // Apply pagination after distance filtering (only if pagination parameters are provided)
       if (pageNum && limitNum) {
@@ -274,32 +286,30 @@ export const getAllBrokers = async (req, res) => {
     // If we filtered manually by distance, we need to count manually too
     let totalBrokers;
     if (userLat !== null && userLng !== null) {
-      // Count all brokers with location that match other filters
-      const allBrokersWithLocation = await BrokerDetail.find({
-        ...filter,
-        'location.coordinates': { $exists: true, $ne: null, $size: 2 }
-      }).select('location').lean();
-      
-      // Only filter by radius if radius is explicitly provided
-      // If no radius, count all brokers with valid coordinates
-      totalBrokers = allBrokersWithLocation.filter(broker => {
-        if (broker.location && broker.location.coordinates && broker.location.coordinates.length === 2) {
-          const [brokerLat, brokerLng] = broker.location.coordinates;
-          if (isNaN(brokerLat) || isNaN(brokerLng) || !isFinite(brokerLat) || !isFinite(brokerLng)) {
-            return false; // Skip invalid coordinates
-          }
-          
-          // If radius is provided, filter by distance
-          if (radiusKm !== null) {
+      if (radiusKm !== null) {
+        // If radius is provided, only count brokers with valid coordinates within radius
+        const allBrokersWithLocation = await BrokerDetail.find({
+          ...filter,
+          'location.coordinates': { $exists: true, $ne: null, $size: 2 }
+        }).select('location').lean();
+        
+        totalBrokers = allBrokersWithLocation.filter(broker => {
+          if (broker.location && broker.location.coordinates && broker.location.coordinates.length === 2) {
+            const [brokerLat, brokerLng] = broker.location.coordinates;
+            if (isNaN(brokerLat) || isNaN(brokerLng) || !isFinite(brokerLat) || !isFinite(brokerLng)) {
+              return false; // Skip invalid coordinates
+            }
+            
             const distance = calculateDistanceKm(userLat, userLng, brokerLat, brokerLng);
             return distance <= radiusKm;
           }
-          
-          // If no radius, include all brokers with valid coordinates
-          return true;
-        }
-        return false;
-      }).length;
+          return false;
+        }).length;
+      } else {
+        // If no radius, count all brokers (with or without coordinates)
+        // This matches the behavior of including all brokers
+        totalBrokers = await BrokerDetail.countDocuments(finalFilter);
+      }
     } else {
       totalBrokers = await BrokerDetail.countDocuments(finalFilter);
     }
@@ -312,10 +322,21 @@ export const getAllBrokers = async (req, res) => {
     // Prepare lead/property stats and property lists for each broker
     const brokerIds = brokers.map(b => {
       // Handle both Mongoose documents and plain objects
-      if (b && b._id) return b._id;
+      if (b && b._id) {
+        // Convert to ObjectId if it's a string, otherwise use as is
+        if (typeof b._id === 'string') {
+          return mongoose.Types.ObjectId.isValid(b._id) ? new mongoose.Types.ObjectId(b._id) : null;
+        }
+        return b._id;
+      }
       if (b && b.toObject && typeof b.toObject === 'function') {
         const obj = b.toObject();
-        if (obj && obj._id) return obj._id;
+        if (obj && obj._id) {
+          if (typeof obj._id === 'string') {
+            return mongoose.Types.ObjectId.isValid(obj._id) ? new mongoose.Types.ObjectId(obj._id) : null;
+          }
+          return obj._id;
+        }
       }
       return null;
     }).filter(id => id !== null); // Remove null entries
@@ -362,7 +383,9 @@ export const getAllBrokers = async (req, res) => {
     const brokerIdToLeads = new Map();
     const brokerIdToProperties = new Map();
     for (const l of leadsBasic) {
-      const key = String(l.createdBy);
+      // Ensure consistent string conversion for Map keys
+      const key = l.createdBy ? String(l.createdBy) : null;
+      if (!key) continue; // Skip if no createdBy
       if (!brokerIdToLeads.has(key)) brokerIdToLeads.set(key, []);
       brokerIdToLeads.get(key).push({
         _id: l._id,
@@ -382,7 +405,9 @@ export const getAllBrokers = async (req, res) => {
 
     // Group properties by broker
     for (const p of brokerProperties) {
-      const key = String(p.broker);
+      // Ensure consistent string conversion for Map keys
+      const key = p.broker ? String(p.broker) : null;
+      if (!key) continue; // Skip if no broker
       if (!brokerIdToProperties.has(key)) brokerIdToProperties.set(key, []);
       brokerIdToProperties.get(key).push({
         _id: p._id,
@@ -426,13 +451,23 @@ export const getAllBrokers = async (req, res) => {
 
       // Attach lead and property stats
       const key = String(brokerObj._id);
+      const leads = brokerIdToLeads.get(key) || [];
+      const properties = brokerIdToProperties.get(key) || [];
+      
+      // Use actual count from items array to ensure accuracy
+      // Fallback to aggregation count if items array is empty but count exists
+      const leadCountFromItems = leads.length;
+      const leadCountFromAgg = brokerIdToLeadCount.get(key) || 0;
+      const propertyCountFromItems = properties.length;
+      const propertyCountFromAgg = brokerIdToPropertyCount.get(key) || 0;
+      
       brokerObj.leadsCreated = {
-        count: brokerIdToLeadCount.get(key) || 0,
-        items: brokerIdToLeads.get(key) || []
+        count: leadCountFromItems > 0 ? leadCountFromItems : leadCountFromAgg,
+        items: leads
       };
-      brokerObj.leadCount = brokerIdToLeadCount.get(key) || 0;
-      brokerObj.propertyCount = brokerIdToPropertyCount.get(key) || 0;
-      brokerObj.properties = brokerIdToProperties.get(key) || [];
+      brokerObj.leadCount = leadCountFromItems > 0 ? leadCountFromItems : leadCountFromAgg;
+      brokerObj.propertyCount = propertyCountFromItems > 0 ? propertyCountFromItems : propertyCountFromAgg;
+      brokerObj.properties = properties;
 
       // Attach rating (default 4 if no ratings)
       const ratingInfo = brokerIdToRating.get(key) || {

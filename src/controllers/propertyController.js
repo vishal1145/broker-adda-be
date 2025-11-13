@@ -294,9 +294,10 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
     }
 
     // ---- Pagination & sorting ----
-    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100); // cap to 100
-    const skip = (pageNum - 1) * limitNum;
+    // Only apply pagination if page and limit are explicitly provided
+    const pageNum = (page && Number.isFinite(parseInt(page, 10)) && parseInt(page, 10) > 0) ? parseInt(page, 10) : null;
+    const limitNum = (limit && Number.isFinite(parseInt(limit, 10)) && parseInt(limit, 10) > 0) ? Math.min(parseInt(limit, 10), 100) : null; // cap to 100 if provided
+    const skip = (pageNum && limitNum) ? (pageNum - 1) * limitNum : 0;
 
     // safe sort map (allow only known fields)
     const allowedSort = new Set([
@@ -369,15 +370,18 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
         .lean();
       total = items.length; // Will be recalculated after distance filtering
     } else {
-      // For non-geospatial queries, apply pagination at database level
+      // For non-geospatial queries, apply pagination at database level (only if pagination is provided)
+      let itemsQuery = Property.find(filter, projection)
+        .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+        .populate("region", "name description city state centerLocation radius centerCoordinates")
+        .sort(sort);
+      
+      if (pageNum && limitNum) {
+        itemsQuery = itemsQuery.skip(skip).limit(limitNum);
+      }
+      
       const [fetchedItems, fetchedTotal] = await Promise.all([
-        Property.find(filter, projection)
-          .populate("broker", "name email phone firmName licenseNumber status brokerImage")
-          .populate("region", "name description city state centerLocation radius centerCoordinates")
-          .sort(sort)
-          .skip(skip)
-          .limit(limitNum)
-          .lean(),
+        itemsQuery.lean(),
         Property.countDocuments(filter)
       ]);
       items = fetchedItems;
@@ -532,11 +536,11 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
       data: itemsWithRatings,
       pagination: {
         total: totalCount,
-        page: pageNum,
-        limit: limitNum,
-        totalPages: Math.ceil(totalCount / limitNum),
-        hasNextPage: skip + itemsWithRatings.length < totalCount,
-        hasPrevPage: pageNum > 1,
+        page: pageNum || 1,
+        limit: limitNum || totalCount,
+        totalPages: limitNum ? Math.ceil(totalCount / limitNum) : 1,
+        hasNextPage: (pageNum && limitNum) ? (skip + itemsWithRatings.length < totalCount) : false,
+        hasPrevPage: (pageNum && limitNum) ? pageNum > 1 : false,
       },
       sort: { sortBy: sortField, sortOrder: sortDir === 1 ? "asc" : "desc" },
       filter,

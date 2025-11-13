@@ -431,10 +431,15 @@ export const getLeads = async (req, res) => {
       }
     }
 
-    const pageNum = Number.isFinite(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;
-    const limitNum = Number.isFinite(parseInt(limit)) && parseInt(limit) > 0 ? parseInt(limit) : 10;
-    const skip = (pageNum - 1) * limitNum;
-    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+    // Only apply pagination if page and limit are explicitly provided
+    const pageNum = (page && Number.isFinite(parseInt(page)) && parseInt(page) > 0) ? parseInt(page) : null;
+    const limitNum = (limit && Number.isFinite(parseInt(limit)) && parseInt(limit) > 0) ? parseInt(limit) : null;
+    const skip = (pageNum && limitNum) ? (pageNum - 1) * limitNum : 0;
+    
+    // Determine sort: if coordinates provided and no explicit sortBy, we'll sort by distance later
+    // Otherwise, use provided sortBy or default to createdAt
+    const shouldSortByDistance = (userLat !== null && userLng !== null && !sortBy);
+    const sort = shouldSortByDistance ? {} : { [sortBy || 'createdAt']: sortOrder === 'desc' ? -1 : 1 };
 
     // If coordinates are provided, fetch all leads first (no pagination limit)
     // Otherwise, apply pagination at database level
@@ -479,12 +484,15 @@ export const getLeads = async (req, res) => {
       total = allLeads.length; // Will be recalculated after distance filtering
     } else {
       // First get original createdBy ObjectIds before populate
-      const leadDocs = await Lead.find(filter)
+      let leadDocsQuery = Lead.find(filter)
         .select('_id createdBy')
-        .sort(sort)
-        .skip(skip)
-        .limit(limitNum)
-        .lean();
+        .sort(sort);
+      
+      if (pageNum && limitNum) {
+        leadDocsQuery = leadDocsQuery.skip(skip).limit(limitNum);
+      }
+      
+      const leadDocs = await leadDocsQuery.lean();
       
       leadDocs.forEach(doc => {
         if (doc.createdBy) {
@@ -492,11 +500,15 @@ export const getLeads = async (req, res) => {
         }
       });
 
+      let itemsQuery = Lead.find(filter)
+        .sort(sort);
+      
+      if (pageNum && limitNum) {
+        itemsQuery = itemsQuery.skip(skip).limit(limitNum);
+      }
+      
       const [fetchedItems, fetchedTotal] = await Promise.all([
-        Lead.find(filter)
-          .sort(sort)
-          .skip(skip)
-          .limit(limitNum)
+        itemsQuery
           .populate({
             path: 'createdBy',
             select: 'name email phone firmName brokerImage userId',
@@ -575,49 +587,77 @@ export const getLeads = async (req, res) => {
     // If coordinates are provided, calculate distance from primaryRegion centerCoordinates
     let leadsWithDistance = items;
     if (userLat !== null && userLng !== null) {
-      leadsWithDistance = items
-        .map(lead => {
-          // Calculate distance from primaryRegion's centerCoordinates
-          if (lead.primaryRegion && 
-              lead.primaryRegion.centerCoordinates && 
-              Array.isArray(lead.primaryRegion.centerCoordinates) && 
-              lead.primaryRegion.centerCoordinates.length === 2) {
-            const [regionLat, regionLng] = lead.primaryRegion.centerCoordinates;
-            
-            // Validate region coordinates
-            if (isNaN(regionLat) || isNaN(regionLng) || !isFinite(regionLat) || !isFinite(regionLng)) {
-              return null; // Skip invalid coordinates
-            }
-            
-            const distance = calculateDistanceKm(userLat, userLng, regionLat, regionLng);
-            
-            // Filter by radius if provided
-            if (radiusKm !== null && distance > radiusKm) {
-              return null; // Filter out leads beyond radius
-            }
-            
-            // Add distance to lead
-            return {
-              ...lead,
-              distanceKm: Number(distance.toFixed(3))
-            };
-          }
-          // If no primaryRegion or centerCoordinates, return null (filter out)
-          return null;
-        })
-        .filter(lead => lead !== null); // Remove null entries
+      const leadsWithDistanceArray = [];
+      const leadsWithoutCoordinates = [];
       
-      // Sort by distance in ascending order (closest first)
-      leadsWithDistance.sort((a, b) => {
-        const distA = a.distanceKm || Infinity;
-        const distB = b.distanceKm || Infinity;
-        return distA - distB;
+      items.forEach(lead => {
+        // Calculate distance from primaryRegion's centerCoordinates
+        if (lead.primaryRegion && 
+            lead.primaryRegion.centerCoordinates && 
+            Array.isArray(lead.primaryRegion.centerCoordinates) && 
+            lead.primaryRegion.centerCoordinates.length === 2) {
+          const [regionLat, regionLng] = lead.primaryRegion.centerCoordinates;
+          
+          // Validate region coordinates
+          if (isNaN(regionLat) || isNaN(regionLng) || !isFinite(regionLat) || !isFinite(regionLng)) {
+            // Invalid coordinates - include without distance if no radius filter
+            if (radiusKm === null) {
+              leadsWithoutCoordinates.push(lead);
+            }
+            return;
+          }
+          
+          const distance = calculateDistanceKm(userLat, userLng, regionLat, regionLng);
+          
+          // Filter by radius if provided
+          if (radiusKm !== null && distance > radiusKm) {
+            return; // Filter out leads beyond radius
+          }
+          
+          // Add distance to lead
+          leadsWithDistanceArray.push({
+            ...lead,
+            distanceKm: Number(distance.toFixed(3))
+          });
+        } else {
+          // No primaryRegion or centerCoordinates - include without distance if no radius filter
+          // (If radius is provided, we can't calculate distance, so exclude them)
+          if (radiusKm === null) {
+            leadsWithoutCoordinates.push(lead);
+          }
+        }
       });
       
-      // Apply pagination after distance filtering
-      const startIndex = skip;
-      const endIndex = skip + limitNum;
-      leadsWithDistance = leadsWithDistance.slice(startIndex, endIndex);
+      // Always sort by distance in ascending order (closest first) when coordinates are provided
+      // This takes priority over any other sortBy parameter
+      leadsWithDistanceArray.sort((a, b) => {
+        const distA = a.distanceKm !== undefined ? a.distanceKm : Infinity;
+        const distB = b.distanceKm !== undefined ? b.distanceKm : Infinity;
+        if (distA !== distB) {
+          return distA - distB; // Sort by distance first
+        }
+        // If distances are equal, apply secondary sort if sortBy is provided
+        if (sortBy && sortBy !== 'distanceKm') {
+          const valA = a[sortBy];
+          const valB = b[sortBy];
+          if (valA !== undefined && valB !== undefined) {
+            const order = sortOrder === 'desc' ? -1 : 1;
+            if (valA < valB) return -1 * order;
+            if (valA > valB) return 1 * order;
+          }
+        }
+        return 0;
+      });
+      
+      // Combine: leads with distance first (sorted), then those without coordinates
+      leadsWithDistance = [...leadsWithDistanceArray, ...leadsWithoutCoordinates];
+      
+      // Apply pagination after distance filtering (only if pagination parameters are provided)
+      if (pageNum && limitNum) {
+        const startIndex = skip;
+        const endIndex = skip + limitNum;
+        leadsWithDistance = leadsWithDistance.slice(startIndex, endIndex);
+      }
     }
 
     // Convert brokerImage paths to URLs
@@ -651,23 +691,43 @@ export const getLeads = async (req, res) => {
       return lead;
     });
 
-    // Calculate total count for pagination (already calculated in leadsWithDistance if coordinates provided)
+    // Calculate total count for pagination
     let totalCount = total;
     if (userLat !== null && userLng !== null) {
-      // Total count is the length of leadsWithDistance (already filtered)
-      totalCount = leadsWithDistance.length;
+      if (radiusKm !== null) {
+        // If radius is provided, count only leads with valid coordinates within radius
+        // We need to recalculate this from the original items before pagination
+        const allLeadsWithDistance = items.filter(lead => {
+          if (lead.primaryRegion && 
+              lead.primaryRegion.centerCoordinates && 
+              Array.isArray(lead.primaryRegion.centerCoordinates) && 
+              lead.primaryRegion.centerCoordinates.length === 2) {
+            const [regionLat, regionLng] = lead.primaryRegion.centerCoordinates;
+            if (isNaN(regionLat) || isNaN(regionLng) || !isFinite(regionLat) || !isFinite(regionLng)) {
+              return false;
+            }
+            const distance = calculateDistanceKm(userLat, userLng, regionLat, regionLng);
+            return distance <= radiusKm;
+          }
+          return false;
+        });
+        totalCount = allLeadsWithDistance.length;
+      } else {
+        // If no radius, count all leads (with or without coordinates)
+        totalCount = items.length;
+      }
     }
 
-    const totalPages = Math.ceil(totalCount / limitNum);
+    const totalPages = limitNum ? Math.ceil(totalCount / limitNum) : 1;
 
     return successResponse(res, 'Leads retrieved successfully', {
       items: itemsWithImageUrls,
-      page: pageNum,
-      limit: limitNum,
+      page: pageNum || 1,
+      limit: limitNum || totalCount,
       total: totalCount,
       totalPages,
-      hasNextPage: pageNum < totalPages,
-      hasPrevPage: pageNum > 1
+      hasNextPage: (pageNum && limitNum) ? pageNum < totalPages : false,
+      hasPrevPage: (pageNum && limitNum) ? pageNum > 1 : false
     });
   } catch (error) {
     return serverError(res, error);
@@ -1062,18 +1122,26 @@ export const getTransferredLeads = async (req, res) => {
     const baseTransferFilter = { transfers: { $exists: true, $ne: [] } };
     const finalFilter = { ...filter, ...baseTransferFilter, ...matchTransfers };
 
-    const pageNum = Number.isFinite(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;
-    const limitNum = Number.isFinite(parseInt(limit)) && parseInt(limit) > 0 ? parseInt(limit) : 10;
-    const skip = (pageNum - 1) * limitNum;
-    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+    // Only apply pagination if page and limit are explicitly provided
+    const pageNum = (page && Number.isFinite(parseInt(page)) && parseInt(page) > 0) ? parseInt(page) : null;
+    const limitNum = (limit && Number.isFinite(parseInt(limit)) && parseInt(limit) > 0) ? parseInt(limit) : null;
+    const skip = (pageNum && limitNum) ? (pageNum - 1) * limitNum : 0;
+    
+    // Determine sort: if coordinates provided and no explicit sortBy, sort by distance
+    // Otherwise, use provided sortBy or default to createdAt
+    const shouldSortByDistance = (userLat !== null && userLng !== null && !sortBy);
+    const sort = shouldSortByDistance ? {} : { [sortBy || 'createdAt']: sortOrder === 'desc' ? -1 : 1 };
 
     // First get original createdBy ObjectIds before populate
-    const leadDocs = await Lead.find(finalFilter)
+    let leadDocsQuery = Lead.find(finalFilter)
       .select('_id createdBy')
-      .sort(sort)
-      .skip(skip)
-      .limit(limitNum)
-      .lean();
+      .sort(sort);
+    
+    if (pageNum && limitNum) {
+      leadDocsQuery = leadDocsQuery.skip(skip).limit(limitNum);
+    }
+    
+    const leadDocs = await leadDocsQuery.lean();
     
     const createdByIdsMap = new Map();
     leadDocs.forEach(doc => {
@@ -1082,11 +1150,15 @@ export const getTransferredLeads = async (req, res) => {
       }
     });
 
+    let itemsQuery = Lead.find(finalFilter)
+      .sort(sort);
+    
+    if (pageNum && limitNum) {
+      itemsQuery = itemsQuery.skip(skip).limit(limitNum);
+    }
+
     const [items, total] = await Promise.all([
-      Lead.find(finalFilter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limitNum)
+      itemsQuery
         .populate({
           path: 'createdBy',
           select: 'name email phone firmName brokerImage userId',
@@ -1186,16 +1258,16 @@ export const getTransferredLeads = async (req, res) => {
       return lead;
     });
 
-    const totalPages = Math.ceil(total / limitNum);
+    const totalPages = limitNum ? Math.ceil(total / limitNum) : 1;
 
     return successResponse(res, 'Transferred leads retrieved successfully', {
       items: itemsWithImageUrls,
-      page: pageNum,
-      limit: limitNum,
+      page: pageNum || 1,
+      limit: limitNum || total,
       total,
       totalPages,
-      hasNextPage: pageNum < totalPages,
-      hasPrevPage: pageNum > 1
+      hasNextPage: (pageNum && limitNum) ? pageNum < totalPages : false,
+      hasPrevPage: (pageNum && limitNum) ? pageNum > 1 : false
     });
   } catch (error) {
     return serverError(res, error);
