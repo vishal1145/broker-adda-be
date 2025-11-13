@@ -7,6 +7,7 @@ import Region from "../models/Region.js";
 import { getFileUrl } from "../middleware/upload.js";
 import { createPropertyNotification, createNotification, getUserIdFromBrokerOrProperty } from "../utils/notifications.js";
 import User from "../models/User.js";
+import { geocodeAddress } from "../utils/geocode.js";
 
 export const createProperty = async (req, res) => {
   try {
@@ -23,7 +24,8 @@ export const createProperty = async (req, res) => {
       verificationStatus,
       propertyAgeYears,
       broker,                   // must be a BrokerDetail _id (not User id)
-      isFeatured, notes,status,
+      isFeatured, notes, status,
+      isHotProperty,           // hot property flag
     } = req.body;
 
     // If caller is a broker, override with token value (optional)
@@ -70,7 +72,25 @@ export const createProperty = async (req, res) => {
     const finalImages = [...bodyImages, ...uploadedImages];
     const finalVideos = [...bodyVideos, ...uploadedVideos];
 
-    // 5) create
+    // 5) Geocode address to get coordinates
+    let latitude = null;
+    let longitude = null;
+    if (address) {
+      try {
+        // Build full address string for geocoding
+        const fullAddress = [address, city].filter(Boolean).join(', ');
+        const coords = await geocodeAddress(fullAddress);
+        if (coords) {
+          latitude = coords.lat;
+          longitude = coords.lng;
+        }
+      } catch (geocodeError) {
+        console.error('Error geocoding address:', geocodeError);
+        // Continue without coordinates if geocoding fails
+      }
+    }
+
+    // 6) Create property with geocoded coordinates
     const doc = await Property.create({
       title, description, propertyDescription, propertySize,
       propertyType, subType, price, priceUnit,
@@ -80,8 +100,11 @@ export const createProperty = async (req, res) => {
       videos: finalVideos,
       broker: brokerId,
       isFeatured: !!isFeatured,
+      isHotProperty: !!isHotProperty,
       notes,
       status, // ✅ added
+      latitude,
+      longitude,
       // listing meta
       facingDirection,
       possessionStatus,
@@ -89,7 +112,7 @@ export const createProperty = async (req, res) => {
       verificationStatus,
       propertyAgeYears,
     });
-    // 6) return with populated broker and region info
+    // 7) Return with populated broker and region info
     const created = await Property.findById(doc._id)
       .populate("broker", "name email phone firmName licenseNumber status")
       .populate("region", "name description city state centerLocation radius")
@@ -165,6 +188,11 @@ export const getProperties = async (req, res) => {
       fields,                 // e.g. fields=title,price,city
       // alias support
       broker: brokerAlias,
+      
+      // coordinate-based distance calculation (optional)
+      latitude,               // User's latitude for distance calculation
+      longitude,              // User's longitude for distance calculation
+      radius,                 // in kilometers, optional - if provided, filter by distance from property location
     } = req.query;
 
     // ---- Build filter object ----
@@ -289,17 +317,72 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
       ? fields.split(",").map(f => f.trim()).filter(Boolean).join(" ")
       : undefined;
 
+    // Helper function to calculate distance in km using Haversine formula
+    const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
+      const R = 6371; // Earth's radius in km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    // Coordinate-based distance calculation
+    let userLat = null;
+    let userLng = null;
+    let radiusKm = null;
+    if (latitude && longitude) {
+      userLat = parseFloat(latitude);
+      userLng = parseFloat(longitude);
+      
+      // Validate coordinates
+      if (isNaN(userLat) || isNaN(userLng) || userLat < -90 || userLat > 90 || userLng < -180 || userLng > 180) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Invalid latitude or longitude values" 
+        });
+      }
+      
+      // Only use radius if explicitly provided
+      if (radius) {
+        radiusKm = parseFloat(radius);
+        if (isNaN(radiusKm) || radiusKm <= 0) {
+          return res.status(400).json({ 
+            success: false, 
+            message: "Invalid radius value. Must be a positive number" 
+          });
+        }
+      }
+    }
+
     // ---- Query ----
-    const [items, total] = await Promise.all([
-      Property.find(filter, projection)
+    // If coordinates are provided, fetch all properties first (no pagination limit)
+    // Otherwise, apply pagination at database level
+    let items, total;
+    if (userLat !== null && userLng !== null) {
+      // Fetch all properties for distance calculation
+      items = await Property.find(filter, projection)
         .populate("broker", "name email phone firmName licenseNumber status brokerImage")
-        .populate("region", "name description city state centerLocation radius")
-        .sort(sort)
-        .skip(skip)
-        .limit(limitNum)
-        .lean(),
-      Property.countDocuments(filter)
-    ]);
+        .populate("region", "name description city state centerLocation radius centerCoordinates")
+        .lean();
+      total = items.length; // Will be recalculated after distance filtering
+    } else {
+      // For non-geospatial queries, apply pagination at database level
+      const [fetchedItems, fetchedTotal] = await Promise.all([
+        Property.find(filter, projection)
+          .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+          .populate("region", "name description city state centerLocation radius centerCoordinates")
+          .sort(sort)
+          .skip(skip)
+          .limit(limitNum)
+          .lean(),
+        Property.countDocuments(filter)
+      ]);
+      items = fetchedItems;
+      total = fetchedTotal;
+    }
 
     // Get property IDs and fetch ratings
     const propertyIds = items.map(i => i._id);
@@ -325,31 +408,134 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
       });
     }
 
-    // Attach ratings to properties (default 4 if no ratings)
-    const itemsWithRatings = items.map(item => {
-      const key = String(item._id);
-      const ratingInfo = propertyIdToRating.get(key) || {
-        rating: 4,
-        totalRatings: 0,
-        isDefaultRating: true
-      };
-      return {
-        ...item,
-        rating: ratingInfo.rating,
-        totalRatings: ratingInfo.totalRatings,
-        isDefaultRating: ratingInfo.isDefaultRating
-      };
-    });
+    // Attach ratings and distance to properties, filter by radius if provided
+    let propertiesWithDistance = items
+      .map(item => {
+        const key = String(item._id);
+        const ratingInfo = propertyIdToRating.get(key) || {
+          rating: 4,
+          totalRatings: 0,
+          isDefaultRating: true
+        };
+        
+        const propertyData = {
+          ...item,
+          rating: ratingInfo.rating,
+          totalRatings: ratingInfo.totalRatings,
+          isDefaultRating: ratingInfo.isDefaultRating
+        };
+        
+        // Calculate distance from region's centerCoordinates to property's latitude/longitude
+        if (userLat !== null && userLng !== null) {
+          // If radius is provided, only include properties with valid coordinates
+          if (radiusKm !== null) {
+            // Must have valid property coordinates to filter by radius
+            if (!item.latitude || !item.longitude) {
+              return null; // Filter out properties without coordinates when radius is provided
+            }
+            
+            const propertyLat = parseFloat(item.latitude);
+            const propertyLng = parseFloat(item.longitude);
+            
+            // Validate property coordinates
+            if (isNaN(propertyLat) || isNaN(propertyLng) || 
+                !isFinite(propertyLat) || !isFinite(propertyLng)) {
+              return null; // Filter out properties with invalid coordinates
+            }
+            
+            // Calculate distance from user location to property location
+            const distanceFromUser = calculateDistanceKm(userLat, userLng, propertyLat, propertyLng);
+            propertyData.distanceKm = Number(distanceFromUser.toFixed(3));
+            
+            // Filter by radius
+            if (distanceFromUser > radiusKm) {
+              return null; // Filter out properties beyond radius
+            }
+            
+            // Calculate distance from region center if available
+            if (item.region && 
+                item.region.centerCoordinates && 
+                Array.isArray(item.region.centerCoordinates) && 
+                item.region.centerCoordinates.length === 2) {
+              const [regionLat, regionLng] = item.region.centerCoordinates;
+              if (!isNaN(regionLat) && !isNaN(regionLng) && 
+                  isFinite(regionLat) && isFinite(regionLng)) {
+                const distanceFromRegion = calculateDistanceKm(regionLat, regionLng, propertyLat, propertyLng);
+                propertyData.distanceFromRegionKm = Number(distanceFromRegion.toFixed(3));
+              }
+            }
+            
+            return propertyData;
+          } else {
+            // No radius provided - calculate distance but include all properties
+            if (item.latitude && item.longitude) {
+              const propertyLat = parseFloat(item.latitude);
+              const propertyLng = parseFloat(item.longitude);
+              
+              // Validate property coordinates
+              if (!isNaN(propertyLat) && !isNaN(propertyLng) &&
+                  isFinite(propertyLat) && isFinite(propertyLng)) {
+                // Calculate distance from user location to property location
+                const distanceFromUser = calculateDistanceKm(userLat, userLng, propertyLat, propertyLng);
+                propertyData.distanceKm = Number(distanceFromUser.toFixed(3));
+                
+                // Calculate distance from region center if available
+                if (item.region && 
+                    item.region.centerCoordinates && 
+                    Array.isArray(item.region.centerCoordinates) && 
+                    item.region.centerCoordinates.length === 2) {
+                  const [regionLat, regionLng] = item.region.centerCoordinates;
+                  if (!isNaN(regionLat) && !isNaN(regionLng) && 
+                      isFinite(regionLat) && isFinite(regionLng)) {
+                    const distanceFromRegion = calculateDistanceKm(regionLat, regionLng, propertyLat, propertyLng);
+                    propertyData.distanceFromRegionKm = Number(distanceFromRegion.toFixed(3));
+                  }
+                }
+              }
+            }
+            return propertyData;
+          }
+        }
+        
+        // If coordinates not provided, return property without distance
+        return propertyData;
+      })
+      .filter(property => property !== null); // Remove null entries
+    
+    // Calculate total count for pagination (before pagination is applied)
+    let totalCount = total;
+    if (userLat !== null && userLng !== null) {
+      // Total count is the length of filtered properties (before pagination)
+      totalCount = propertiesWithDistance.length;
+    }
+    
+    // Sort by distance if coordinates are provided (unless another sort is explicitly specified)
+    if (userLat !== null && userLng !== null && (!sortBy || sortBy === "createdAt")) {
+      propertiesWithDistance.sort((a, b) => {
+        const distA = a.distanceKm || Infinity;
+        const distB = b.distanceKm || Infinity;
+        return distA - distB; // Ascending order (closest first)
+      });
+    }
+    
+    // Apply pagination after distance filtering (only if pagination parameters are provided)
+    if (userLat !== null && userLng !== null && pageNum && limitNum) {
+      const startIndex = skip;
+      const endIndex = skip + limitNum;
+      propertiesWithDistance = propertiesWithDistance.slice(startIndex, endIndex);
+    }
+    
+    const itemsWithRatings = propertiesWithDistance;
 
     return res.json({
       success: true,
       data: itemsWithRatings,
       pagination: {
-        total,
+        total: totalCount,
         page: pageNum,
         limit: limitNum,
-        totalPages: Math.ceil(total / limitNum),
-        hasNextPage: skip + items.length < total,
+        totalPages: Math.ceil(totalCount / limitNum),
+        hasNextPage: skip + itemsWithRatings.length < totalCount,
         hasPrevPage: pageNum > 1,
       },
       sort: { sortBy: sortField, sortOrder: sortDir === 1 ? "asc" : "desc" },
@@ -660,6 +846,35 @@ export const updateProperty = async (req, res) => {
       updateData.videos = [...(existingProperty.videos || []), ...uploadedVideos];
     }
     // If videos is undefined and no uploads, don't modify existing videos
+
+    // Geocode address if address or city is being updated
+    if (updateData.address !== undefined || updateData.city !== undefined) {
+      const addressToGeocode = updateData.address !== undefined 
+        ? updateData.address 
+        : existingProperty.address;
+      const cityToGeocode = updateData.city !== undefined 
+        ? updateData.city 
+        : existingProperty.city;
+      
+      if (addressToGeocode) {
+        try {
+          // Build full address string for geocoding
+          const fullAddress = [addressToGeocode, cityToGeocode].filter(Boolean).join(', ');
+          const coords = await geocodeAddress(fullAddress);
+          if (coords) {
+            updateData.latitude = coords.lat;
+            updateData.longitude = coords.lng;
+          } else {
+            // If geocoding fails, set to null to clear old coordinates
+            updateData.latitude = null;
+            updateData.longitude = null;
+          }
+        } catch (geocodeError) {
+          console.error('Error geocoding address during update:', geocodeError);
+          // Continue without updating coordinates if geocoding fails
+        }
+      }
+    }
 
     // Apply updates to the existing property document
     // Using save() method is more reliable for empty arrays than findByIdAndUpdate

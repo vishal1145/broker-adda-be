@@ -231,7 +231,10 @@ export const getLeads = async (req, res) => {
       toDate,
       verificationStatus,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      latitude,
+      longitude,
+      radius // in kilometers, optional - if provided, filter by distance from primaryRegion centerCoordinates
     } = req.query;
 
     const filter = {};
@@ -362,6 +365,40 @@ export const getLeads = async (req, res) => {
       filter.verificationStatus = verificationStatus;
     }
 
+    // Helper function to calculate distance in km using Haversine formula
+    const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
+      const R = 6371; // Earth's radius in km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    // Coordinate-based filtering
+    let userLat = null;
+    let userLng = null;
+    let radiusKm = null;
+    if (latitude && longitude) {
+      userLat = parseFloat(latitude);
+      userLng = parseFloat(longitude);
+      
+      // Validate coordinates
+      if (isNaN(userLat) || isNaN(userLng) || userLat < -90 || userLat > 90 || userLng < -180 || userLng > 180) {
+        return errorResponse(res, 'Invalid latitude or longitude values', 400);
+      }
+      
+      // Only use radius if explicitly provided
+      if (radius) {
+        radiusKm = parseFloat(radius);
+        if (isNaN(radiusKm) || radiusKm <= 0) {
+          return errorResponse(res, 'Invalid radius value. Must be a positive number', 400);
+        }
+      }
+    }
+
     // If logged-in broker, filter leads based on transfer shareType
     if (req.user && req.user.role === 'broker') {
       try {
@@ -399,26 +436,14 @@ export const getLeads = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
-    // First get original createdBy ObjectIds before populate
-    const leadDocs = await Lead.find(filter)
-      .select('_id createdBy')
-      .sort(sort)
-      .skip(skip)
-      .limit(limitNum)
-      .lean();
+    // If coordinates are provided, fetch all leads first (no pagination limit)
+    // Otherwise, apply pagination at database level
+    let items, total;
+    let createdByIdsMap = new Map();
     
-    const createdByIdsMap = new Map();
-    leadDocs.forEach(doc => {
-      if (doc.createdBy) {
-        createdByIdsMap.set(doc._id.toString(), doc.createdBy);
-      }
-    });
-
-    const [items, total] = await Promise.all([
-      Lead.find(filter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limitNum)
+    if (userLat !== null && userLng !== null) {
+      // Fetch all leads for distance calculation
+      const allLeads = await Lead.find(filter)
         .populate({
           path: 'createdBy',
           select: 'name email phone firmName brokerImage userId',
@@ -427,21 +452,78 @@ export const getLeads = async (req, res) => {
             select: '_id name email phone role'
           }
         })
-        .populate({ path: 'primaryRegion', select: 'name state city' })
-        .populate({ path: 'secondaryRegion', select: 'name state city' })
+        .populate({ path: 'primaryRegion' })
+        .populate({ path: 'secondaryRegion' })
         .populate({
           path: 'transfers.fromBroker',
           select: 'name email phone firmName brokerImage region',
-          populate: { path: 'region', select: 'name state city description' }
+          populate: { path: 'region' }
         })
         .populate({
           path: 'transfers.toBroker',
           select: 'name email phone firmName brokerImage region',
-          populate: { path: 'region', select: 'name state city description' }
+          populate: { path: 'region' }
         })
-        .lean(),
-      Lead.countDocuments(filter)
-    ]);
+        .lean();
+      
+      // Get original createdBy ObjectIds before processing
+      allLeads.forEach(doc => {
+        if (doc.createdBy && typeof doc.createdBy === 'object' && doc.createdBy._id) {
+          createdByIdsMap.set(doc._id.toString(), doc.createdBy._id);
+        } else if (doc.createdBy) {
+          createdByIdsMap.set(doc._id.toString(), doc.createdBy);
+        }
+      });
+      
+      items = allLeads;
+      total = allLeads.length; // Will be recalculated after distance filtering
+    } else {
+      // First get original createdBy ObjectIds before populate
+      const leadDocs = await Lead.find(filter)
+        .select('_id createdBy')
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+      
+      leadDocs.forEach(doc => {
+        if (doc.createdBy) {
+          createdByIdsMap.set(doc._id.toString(), doc.createdBy);
+        }
+      });
+
+      const [fetchedItems, fetchedTotal] = await Promise.all([
+        Lead.find(filter)
+          .sort(sort)
+          .skip(skip)
+          .limit(limitNum)
+          .populate({
+            path: 'createdBy',
+            select: 'name email phone firmName brokerImage userId',
+            populate: {
+              path: 'userId',
+              select: '_id name email phone role'
+            }
+          })
+          .populate({ path: 'primaryRegion' })
+          .populate({ path: 'secondaryRegion' })
+          .populate({
+            path: 'transfers.fromBroker',
+            select: 'name email phone firmName brokerImage region',
+            populate: { path: 'region' }
+          })
+          .populate({
+            path: 'transfers.toBroker',
+            select: 'name email phone firmName brokerImage region',
+            populate: { path: 'region' }
+          })
+          .lean(),
+        Lead.countDocuments(filter)
+      ]);
+      
+      items = fetchedItems;
+      total = fetchedTotal;
+    }
 
     // Handle admin-created leads: find leads with null createdBy and populate from User
     const adminCreatedLeadIds = [];
@@ -490,8 +572,56 @@ export const getLeads = async (req, res) => {
       });
     }
 
+    // If coordinates are provided, calculate distance from primaryRegion centerCoordinates
+    let leadsWithDistance = items;
+    if (userLat !== null && userLng !== null) {
+      leadsWithDistance = items
+        .map(lead => {
+          // Calculate distance from primaryRegion's centerCoordinates
+          if (lead.primaryRegion && 
+              lead.primaryRegion.centerCoordinates && 
+              Array.isArray(lead.primaryRegion.centerCoordinates) && 
+              lead.primaryRegion.centerCoordinates.length === 2) {
+            const [regionLat, regionLng] = lead.primaryRegion.centerCoordinates;
+            
+            // Validate region coordinates
+            if (isNaN(regionLat) || isNaN(regionLng) || !isFinite(regionLat) || !isFinite(regionLng)) {
+              return null; // Skip invalid coordinates
+            }
+            
+            const distance = calculateDistanceKm(userLat, userLng, regionLat, regionLng);
+            
+            // Filter by radius if provided
+            if (radiusKm !== null && distance > radiusKm) {
+              return null; // Filter out leads beyond radius
+            }
+            
+            // Add distance to lead
+            return {
+              ...lead,
+              distanceKm: Number(distance.toFixed(3))
+            };
+          }
+          // If no primaryRegion or centerCoordinates, return null (filter out)
+          return null;
+        })
+        .filter(lead => lead !== null); // Remove null entries
+      
+      // Sort by distance in ascending order (closest first)
+      leadsWithDistance.sort((a, b) => {
+        const distA = a.distanceKm || Infinity;
+        const distB = b.distanceKm || Infinity;
+        return distA - distB;
+      });
+      
+      // Apply pagination after distance filtering
+      const startIndex = skip;
+      const endIndex = skip + limitNum;
+      leadsWithDistance = leadsWithDistance.slice(startIndex, endIndex);
+    }
+
     // Convert brokerImage paths to URLs
-    const itemsWithImageUrls = (items || []).map(item => {
+    const itemsWithImageUrls = (leadsWithDistance || []).map(item => {
       const lead = { ...item };
       if (lead.createdBy && typeof lead.createdBy === 'object') {
         lead.createdBy = { ...lead.createdBy, brokerImage: getFileUrl(req, lead.createdBy.brokerImage) };
@@ -521,13 +651,20 @@ export const getLeads = async (req, res) => {
       return lead;
     });
 
-    const totalPages = Math.ceil(total / limitNum);
+    // Calculate total count for pagination (already calculated in leadsWithDistance if coordinates provided)
+    let totalCount = total;
+    if (userLat !== null && userLng !== null) {
+      // Total count is the length of leadsWithDistance (already filtered)
+      totalCount = leadsWithDistance.length;
+    }
+
+    const totalPages = Math.ceil(totalCount / limitNum);
 
     return successResponse(res, 'Leads retrieved successfully', {
       items: itemsWithImageUrls,
       page: pageNum,
       limit: limitNum,
-      total,
+      total: totalCount,
       totalPages,
       hasNextPage: pageNum < totalPages,
       hasPrevPage: pageNum > 1
@@ -554,8 +691,8 @@ export const getLeadById = async (req, res) => {
           select: '_id name email phone role'
         }
       })
-      .populate({ path: 'primaryRegion', select: 'name state city description' })
-      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({ path: 'primaryRegion' })
+      .populate({ path: 'secondaryRegion' })
       .populate({
         path: 'transfers.fromBroker',
         select: 'name email phone firmName brokerImage region',
@@ -958,17 +1095,17 @@ export const getTransferredLeads = async (req, res) => {
             select: '_id name email phone role'
           }
         })
-        .populate({ path: 'primaryRegion', select: 'name state city' })
-        .populate({ path: 'secondaryRegion', select: 'name state city' })
+        .populate({ path: 'primaryRegion' })
+        .populate({ path: 'secondaryRegion' })
         .populate({
           path: 'transfers.fromBroker',
           select: 'name email phone firmName brokerImage region',
-          populate: { path: 'region', select: 'name state city description' }
+          populate: { path: 'region' }
         })
         .populate({
           path: 'transfers.toBroker',
           select: 'name email phone firmName brokerImage region',
-          populate: { path: 'region', select: 'name state city description' }
+          populate: { path: 'region' }
         })
         .lean(),
       Lead.countDocuments(finalFilter)
@@ -1386,8 +1523,8 @@ export const updateLead = async (req, res) => {
           select: '_id name email phone role'
         }
       })
-      .populate({ path: 'primaryRegion', select: 'name state city description' })
-      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({ path: 'primaryRegion' })
+      .populate({ path: 'secondaryRegion' })
       .populate({
         path: 'transfers.fromBroker',
         select: 'name email phone firmName region',
@@ -1749,8 +1886,8 @@ export const transferAndNotes = async (req, res) => {
           select: '_id name email phone role'
         }
       })
-      .populate({ path: 'primaryRegion', select: 'name state city description' })
-      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({ path: 'primaryRegion' })
+      .populate({ path: 'secondaryRegion' })
       .populate({
         path: 'transfers.fromBroker',
         select: 'name email phone firmName brokerImage region',
@@ -1762,8 +1899,7 @@ export const transferAndNotes = async (req, res) => {
         populate: { path: 'region', select: 'name state city description' }
       })
       .populate({
-        path: 'transfers.region',
-        select: 'name state city description'
+        path: 'transfers.region'
       })
       .lean();
 
@@ -1965,8 +2101,8 @@ export const updateRegionTransfer = async (req, res) => {
           select: '_id name email phone role'
         }
       })
-      .populate({ path: 'primaryRegion', select: 'name state city description' })
-      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({ path: 'primaryRegion' })
+      .populate({ path: 'secondaryRegion' })
       .populate({
         path: 'transfers.fromBroker',
         select: 'name email phone firmName brokerImage region',
@@ -1978,8 +2114,7 @@ export const updateRegionTransfer = async (req, res) => {
         populate: { path: 'region', select: 'name state city description' }
       })
       .populate({
-        path: 'transfers.region',
-        select: 'name state city description'
+        path: 'transfers.region'
       })
       .lean();
 
@@ -2048,8 +2183,8 @@ export const deleteRegionTransfer = async (req, res) => {
           select: '_id name email phone role'
         }
       })
-      .populate({ path: 'primaryRegion', select: 'name state city description' })
-      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({ path: 'primaryRegion' })
+      .populate({ path: 'secondaryRegion' })
       .populate({
         path: 'transfers.fromBroker',
         select: 'name email phone firmName brokerImage region',
@@ -2061,8 +2196,7 @@ export const deleteRegionTransfer = async (req, res) => {
         populate: { path: 'region', select: 'name state city description' }
       })
       .populate({
-        path: 'transfers.region',
-        select: 'name state city description'
+        path: 'transfers.region'
       })
       .lean();
 
@@ -2112,8 +2246,8 @@ export const updateLeadVerification = async (req, res) => {
           select: '_id name email phone role'
         }
       })
-      .populate({ path: 'primaryRegion', select: 'name state city description' })
-      .populate({ path: 'secondaryRegion', select: 'name state city description' })
+      .populate({ path: 'primaryRegion' })
+      .populate({ path: 'secondaryRegion' })
       .populate({
         path: 'transfers.fromBroker',
         select: 'name email phone firmName brokerImage region',

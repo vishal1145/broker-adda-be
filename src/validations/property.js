@@ -56,6 +56,7 @@ export const createPropertySchema = Joi.object({
   // Status & workflow
   status:       Joi.string().valid(...STATUSES).default("Pending Approval"),
   isFeatured:   Joi.boolean().default(false),
+  isHotProperty: Joi.boolean().default(false),
 
   // Extra
   notes:        Joi.string().max(2000).allow("", null),
@@ -127,6 +128,7 @@ export const updatePropertySchema = Joi.object({
   // Status & workflow
   status:       Joi.string().valid(...STATUSES).optional(),
   isFeatured:   Joi.boolean().optional(),
+  isHotProperty: Joi.boolean().optional(),
 
   // Extra
   notes:        Joi.string().max(2000).allow("", null).optional(),

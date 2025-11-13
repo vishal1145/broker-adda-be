@@ -116,16 +116,25 @@ export const getAllBrokers = async (req, res) => {
     let geospatialQuery = null;
     let userLat = null;
     let userLng = null;
+    let radiusKm = null;
     if (latitude && longitude) {
       userLat = parseFloat(latitude);
       userLng = parseFloat(longitude);
-      const radiusKm = radius ? parseFloat(radius) : 50; // Default 50km radius
+      
+      // Only use radius if explicitly provided
+      if (radius) {
+        radiusKm = parseFloat(radius);
+        if (isNaN(radiusKm) || radiusKm <= 0) {
+          return errorResponse(res, 'Invalid radius value. Must be a positive number', 400);
+        }
+      }
 
       // Validate coordinates
       if (isNaN(userLat) || isNaN(userLng) || userLat < -90 || userLat > 90 || userLng < -180 || userLng > 180) {
         return errorResponse(res, 'Invalid latitude or longitude values', 400);
       }
 
+      if (radiusKm !== null) {
       // Use $geoWithin with $centerSphere instead of $near to avoid sorting conflicts
       // $centerSphere requires radius in radians: radiusInRadians = radiusInKm / 6378.1
       // NOTE: The data is stored as [latitude, longitude] instead of GeoJSON standard [longitude, latitude]
@@ -142,6 +151,7 @@ export const getAllBrokers = async (req, res) => {
           }
         }
       };
+      }
     }
 
     // Calculate pagination (only if page/limit are provided)
@@ -163,26 +173,38 @@ export const getAllBrokers = async (req, res) => {
       sort = { createdAt: order };
     }
 
-    // Combine regular filter with geospatial query if provided
+    // Combine regular filter with location filter if coordinates are provided
     // NOTE: Since coordinates are stored as [lat, lng] instead of GeoJSON [lng, lat],
     // MongoDB's geospatial queries won't work correctly. We'll fetch all brokers
     // with location data and filter manually by distance.
     let finalFilter = filter;
     
-    // Add location exists filter if geospatial query is needed
-    if (geospatialQuery && userLat !== null && userLng !== null) {
+    // Add location exists filter if coordinates are provided (for distance calculation)
+    if (userLat !== null && userLng !== null) {
       finalFilter = {
         ...filter,
         'location.coordinates': { $exists: true, $ne: null, $size: 2 }
       };
     }
 
+    // Helper function to calculate distance in km using Haversine formula
+    const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
+      const R = 6371; // Earth's radius in km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
     // Get brokers with populated region data
-    // If geospatial filtering, fetch all matching brokers (no limit unless pagination is requested)
+    // If coordinates are provided, fetch all brokers with location and calculate distance
     // Otherwise, apply pagination at database level
     let brokers;
-    if (geospatialQuery && userLat !== null && userLng !== null) {
-      // For geospatial queries, fetch all brokers with location (no pagination limit)
+    if (userLat !== null && userLng !== null) {
+      // For coordinate-based queries, fetch all brokers with location (no pagination limit initially)
       brokers = await BrokerDetail.find(finalFilter)
         .populate('region', 'name description city state centerLocation radius')
         .sort({}); // Don't sort at DB level, we'll sort by distance
@@ -196,24 +218,10 @@ export const getAllBrokers = async (req, res) => {
         .limit(dbLimit);
     }
 
-    // If geospatial query is used, filter manually by distance
+    // If coordinates are provided, calculate distance for all brokers and filter by radius if provided
     // This is necessary because coordinates are stored as [lat, lng] instead of [lng, lat]
-    if (geospatialQuery && userLat !== null && userLng !== null) {
-      const radiusKm = radius ? parseFloat(radius) : 50;
-      
-      // Helper function to calculate distance in km using Haversine formula
-      const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
-        const R = 6371; // Earth's radius in km
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-          Math.sin(dLng / 2) * Math.sin(dLng / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-      };
-
-      // Filter brokers by distance and add distance field
+    if (userLat !== null && userLng !== null) {
+      // Calculate distance for all brokers and add distance field
       // Preserve populated fields (like region) when converting to objects
       const brokersWithDistance = [];
       for (const broker of brokers) {
@@ -231,7 +239,9 @@ export const getAllBrokers = async (req, res) => {
           
           const distance = calculateDistanceKm(userLat, userLng, brokerLat, brokerLng);
           
-          if (distance <= radiusKm) {
+          // Only filter by radius if radius is explicitly provided
+          // If no radius, include all brokers with valid coordinates
+          if (radiusKm === null || distance <= radiusKm) {
             // Add distance property to the broker object
             brokerObj.distanceKm = Number(distance.toFixed(3));
             // Ensure _id is preserved as string for easier handling
@@ -244,12 +254,13 @@ export const getAllBrokers = async (req, res) => {
       }
       brokers = brokersWithDistance;
 
-      // Sort by distance if geospatial query is used (unless another sort is specified)
+      // Always sort by distance in ascending order when coordinates are provided
+      // (unless another sort is explicitly specified)
       if (!sortBy || sortBy === 'createdAt') {
         brokers.sort((a, b) => {
           const distA = a.distanceKm || Infinity;
           const distB = b.distanceKm || Infinity;
-          return distA - distB;
+          return distA - distB; // Ascending order (closest first)
         });
       }
 
@@ -262,30 +273,30 @@ export const getAllBrokers = async (req, res) => {
     // Get total count for pagination
     // If we filtered manually by distance, we need to count manually too
     let totalBrokers;
-    if (geospatialQuery && userLat !== null && userLng !== null) {
+    if (userLat !== null && userLng !== null) {
       // Count all brokers with location that match other filters
       const allBrokersWithLocation = await BrokerDetail.find({
         ...filter,
         'location.coordinates': { $exists: true, $ne: null, $size: 2 }
       }).select('location').lean();
       
-      const radiusKm = radius ? parseFloat(radius) : 50;
-      const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-          Math.sin(dLng / 2) * Math.sin(dLng / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-      };
-      
+      // Only filter by radius if radius is explicitly provided
+      // If no radius, count all brokers with valid coordinates
       totalBrokers = allBrokersWithLocation.filter(broker => {
         if (broker.location && broker.location.coordinates && broker.location.coordinates.length === 2) {
           const [brokerLat, brokerLng] = broker.location.coordinates;
-          const distance = calculateDistanceKm(userLat, userLng, brokerLat, brokerLng);
-          return distance <= radiusKm;
+          if (isNaN(brokerLat) || isNaN(brokerLng) || !isFinite(brokerLat) || !isFinite(brokerLng)) {
+            return false; // Skip invalid coordinates
+          }
+          
+          // If radius is provided, filter by distance
+          if (radiusKm !== null) {
+            const distance = calculateDistanceKm(userLat, userLng, brokerLat, brokerLng);
+            return distance <= radiusKm;
+          }
+          
+          // If no radius, include all brokers with valid coordinates
+          return true;
         }
         return false;
       }).length;

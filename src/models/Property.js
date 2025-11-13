@@ -26,6 +26,13 @@ const propertySchema = new mongoose.Schema(
     address: { type: String, required: true },
     city: { type: String, default: "Agra" },
     region: { type: mongoose.Schema.Types.ObjectId, ref: "Region", required: true },
+    
+    // Coordinates from address geocoding
+    latitude: { type: Number },
+    longitude: { type: Number },
+    
+    // Hot property flag
+    isHotProperty: { type: Boolean, default: false },
 
     bedrooms: { type: Number },
     bathrooms: { type: Number },
