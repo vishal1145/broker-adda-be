@@ -179,6 +179,7 @@ export const getProperties = async (req, res) => {
       dateFrom,               // ISO or yyyy-mm-dd
       dateTo,                 // ISO or yyyy-mm-dd
       propertyAgeCategory,    // New | <5 | <10 | >10
+      isHotProperty,         // "true" | "false" - filter by hot property flag
 
       // sorting
       sortBy = "createdAt",   // e.g. createdAt | price | bedrooms
@@ -220,13 +221,40 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
       filter.isFeatured = String(isFeatured).toLowerCase() === "true";
     }
 
+    // Hot property filter
+    if (typeof isHotProperty !== "undefined") {
+      filter.isHotProperty = String(isHotProperty).toLowerCase() === "true";
+    }
+
     if (bedrooms !== undefined) filter.bedrooms = Number(bedrooms);
     if (bathrooms !== undefined) filter.bathrooms = Number(bathrooms);
 
-    if (minPrice || maxPrice) {
+    // Price filter (minPrice and maxPrice)
+    if (minPrice !== undefined || maxPrice !== undefined) {
       filter.price = {};
-      if (minPrice) filter.price.$gte = Number(minPrice);
-      if (maxPrice) filter.price.$lte = Number(maxPrice);
+      if (minPrice !== undefined) {
+        const min = Number(minPrice);
+        if (!isNaN(min) && min >= 0) {
+          filter.price.$gte = min;
+        }
+      }
+      if (maxPrice !== undefined) {
+        const max = Number(maxPrice);
+        if (!isNaN(max) && max >= 0) {
+          filter.price.$lte = max;
+        }
+      }
+      // Validate that minPrice <= maxPrice if both are provided
+      if (minPrice !== undefined && maxPrice !== undefined) {
+        const min = Number(minPrice);
+        const max = Number(maxPrice);
+        if (!isNaN(min) && !isNaN(max) && min > max) {
+          return res.status(400).json({ 
+            success: false, 
+            message: "minPrice cannot be greater than maxPrice" 
+          });
+        }
+      }
     }
 
     // 👇 NEW: status filter (support single or comma-separated list)
@@ -382,8 +410,8 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
       
       const [fetchedItems, fetchedTotal] = await Promise.all([
         itemsQuery.lean(),
-        Property.countDocuments(filter)
-      ]);
+      Property.countDocuments(filter)
+    ]);
       items = fetchedItems;
       total = fetchedTotal;
     }
@@ -415,19 +443,19 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
     // Attach ratings and distance to properties, filter by radius if provided
     let propertiesWithDistance = items
       .map(item => {
-        const key = String(item._id);
-        const ratingInfo = propertyIdToRating.get(key) || {
-          rating: 4,
-          totalRatings: 0,
-          isDefaultRating: true
-        };
+      const key = String(item._id);
+      const ratingInfo = propertyIdToRating.get(key) || {
+        rating: 4,
+        totalRatings: 0,
+        isDefaultRating: true
+      };
         
         const propertyData = {
-          ...item,
-          rating: ratingInfo.rating,
-          totalRatings: ratingInfo.totalRatings,
-          isDefaultRating: ratingInfo.isDefaultRating
-        };
+        ...item,
+        rating: ratingInfo.rating,
+        totalRatings: ratingInfo.totalRatings,
+        isDefaultRating: ratingInfo.isDefaultRating
+      };
         
         // Calculate distance from region's centerCoordinates to property's latitude/longitude
         if (userLat !== null && userLng !== null) {
