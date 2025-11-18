@@ -1129,9 +1129,9 @@ export const getTransferredLeads = async (req, res) => {
     
     // Determine sort: if coordinates provided and no explicit sortBy, sort by distance
     // Otherwise, use provided sortBy or default to createdAt
-    const shouldSortByDistance = (userLat !== null && userLng !== null && !sortBy);
-    const sort = shouldSortByDistance ? {} : { [sortBy || 'createdAt']: sortOrder === 'desc' ? -1 : 1 };
-
+    // const shouldSortByDistance = (userLat !== null && userLng !== null && !sortBy);
+    // const sort = shouldSortByDistance ? {} : { [sortBy || 'createdAt']: sortOrder === 'desc' ? -1 : 1 };
+    const sort = { [sortBy || 'createdAt']: sortOrder === 'desc' ? -1 : 1 };
     // First get original createdBy ObjectIds before populate
     let leadDocsQuery = Lead.find(finalFilter)
       .select('_id createdBy')
