@@ -50,6 +50,8 @@ const propertySchema = new mongoose.Schema(
 
     broker: { type: mongoose.Schema.Types.ObjectId, ref: "BrokerDetail", required: true },
 
+    transfers: [{ type: mongoose.Schema.Types.ObjectId, ref: "BrokerDetail" }],
+
     // Listing meta
     facingDirection: {
       type: String,
@@ -62,6 +64,10 @@ const propertySchema = new mongoose.Schema(
     postedBy: {
       type: String,
       enum: ["Broker",  "Admin"],
+    },
+    createdBy: {
+      type: String,
+      enum: ["broker", "customer"],
     },
     verificationStatus: {
       type: String,

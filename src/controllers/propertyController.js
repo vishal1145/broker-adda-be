@@ -25,7 +25,8 @@ export const createProperty = async (req, res) => {
       propertyAgeYears,
       broker,                   // must be a BrokerDetail _id (not User id)
       isFeatured, notes, status,
-      isHotProperty,           // hot property flag
+      isHotProperty,   
+      createdBy        // hot property flag
     } = req.body;
 
     // If caller is a broker, override with token value (optional)
@@ -111,6 +112,7 @@ export const createProperty = async (req, res) => {
       postedBy,
       verificationStatus,
       propertyAgeYears,
+      createdBy
     });
     // 7) Return with populated broker and region info
     const created = await Property.findById(doc._id)
@@ -193,7 +195,8 @@ export const getProperties = async (req, res) => {
       // coordinate-based distance calculation (optional)
       latitude,               // User's latitude for distance calculation
       longitude,              // User's longitude for distance calculation
-      radius,                 // in kilometers, optional - if provided, filter by distance from property location
+      radius,     
+      sharedWithme = 'false',            // in kilometers, optional - if provided, filter by distance from property location
     } = req.query;
 
     // ---- Build filter object ----
@@ -393,14 +396,15 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
     if (userLat !== null && userLng !== null) {
       // Fetch all properties for distance calculation
       items = await Property.find(filter, projection)
-        .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+        .populate("broker", "name email phone firmName licenseNumber status brokerImage role")
         .populate("region", "name description city state centerLocation radius centerCoordinates")
+        
         .lean();
       total = items.length; // Will be recalculated after distance filtering
     } else {
       // For non-geospatial queries, apply pagination at database level (only if pagination is provided)
       let itemsQuery = Property.find(filter, projection)
-        .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+        .populate("broker", "name email phone firmName licenseNumber status brokerImage role")
         .populate("region", "name description city state centerLocation radius centerCoordinates")
         .sort(sort);
       
@@ -557,17 +561,31 @@ if (furnishing) filter.furnishing = { $regex: `^${furnishing}$`, $options: "i" }
       propertiesWithDistance = propertiesWithDistance.slice(startIndex, endIndex);
     }
     
-    const itemsWithRatings = propertiesWithDistance;
+    let allProperties;
+
+    
+    if (sharedWithme === "true" || sharedWithme === true) {
+
+      console.log("yha aaya hai if");
+      
+      const sharedProperties = await Property.find({ transfers: { $in: [new mongoose.Types.ObjectId(brokerAlias)] } }).lean();
+      allProperties = sharedProperties;
+    }else {
+      console.log("yha aaya hai else");
+
+      allProperties = propertiesWithDistance;
+
+    }
 
     return res.json({
       success: true,
-      data: itemsWithRatings,
+        data: allProperties,
       pagination: {
-        total: totalCount,
+        total: allProperties.length,
         page: pageNum || 1,
-        limit: limitNum || totalCount,
-        totalPages: limitNum ? Math.ceil(totalCount / limitNum) : 1,
-        hasNextPage: (pageNum && limitNum) ? (skip + itemsWithRatings.length < totalCount) : false,
+        limit: limitNum || allProperties.length,
+        totalPages: limitNum ? Math.ceil(allProperties.length / limitNum) : 1,
+        hasNextPage: (pageNum && limitNum) ? (skip + allProperties.length < allProperties.length) : false,
         hasPrevPage: (pageNum && limitNum) ? pageNum > 1 : false,
       },
       sort: { sortBy: sortField, sortOrder: sortDir === 1 ? "asc" : "desc" },
@@ -1133,6 +1151,43 @@ export const getPropertiesByMonth = async (req, res) => {
     });
   } catch (err) {
     console.error("getPropertiesByMonth error:", err);
+    return res.status(500).json({ success: false, message: "Server error.", error: err.message });
+  }
+};
+
+export const transferProperty = async (req, res) => {
+  try {
+    const propertyId = req.params.id;
+    const { ids, transferType } = req.body;
+    const property = await Property.findById(propertyId);
+    if (!property) {
+      return res.status(404).json({ success: false, message: "Property not found" });
+    }
+    if (transferType === 'all') {
+      const brokers = await BrokerDetail.find({});
+      brokers.forEach(broker => {
+        property.transfers.push( broker._id);
+      });
+    } else if (transferType === 'selected') {
+      if (!ids.length) {
+        return res.status(400).json({ success: false, message: "At least one toBroker is required" });
+      }
+      ids.forEach(id => {
+        property.transfers.push(id);
+      });
+    } else if (transferType === 'region') {
+      if (!ids.length) {
+        return res.status(400).json({ success: false, message: "region is required" });
+      }
+      const brokers = await BrokerDetail.find({region: { $in: ids } });
+      brokers.forEach(broker => {
+        property.transfers.push(broker._id);
+      });
+    }
+    await property.save();
+    return res.json({ success: true, message: "Property transferred successfully" });
+  } catch (err) {
+    console.error("transferProperty error:", err);
     return res.status(500).json({ success: false, message: "Server error.", error: err.message });
   }
 };

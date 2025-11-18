@@ -169,6 +169,11 @@ const brokerDetailSchema = new mongoose.Schema({
     type: String,
     maxlength: [500, 'Admin notes cannot be more than 500 characters']
   },
+
+  role: {
+    type: String,
+    enum: ['broker', 'customer'],
+  },
   // New fields for broker content and experience
   content: {
     type: String,
@@ -195,7 +200,7 @@ const brokerDetailSchema = new mongoose.Schema({
       type: String,
       trim: true,
       maxlength: [200, 'Each certification cannot be more than 200 characters']
-    }]
+    }],
   }
 }, {
   timestamps: true

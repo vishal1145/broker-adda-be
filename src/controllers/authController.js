@@ -331,7 +331,8 @@ export const verifyOTP = async (req, res) => {
           },
           brokerImage: 'https://www.vhv.rs/dpng/d/312-3120300_default-profile-hd-png-download.png',
           status: 'active',
-          approvedByAdmin: 'unblocked'
+          approvedByAdmin: 'unblocked',
+          role: 'broker'
         });
         await brokerDetail.save();
         roleDetails = brokerDetail;
@@ -415,6 +416,13 @@ export const verifyOTP = async (req, res) => {
           }
         });
         await customerDetail.save();
+
+        const customerBrokerDetail = new BrokerDetail({
+          userId: user._id,
+          role: 'customer',
+        });
+        await customerBrokerDetail.save();
+
         roleDetails = customerDetail;
         console.log('Customer details created during registration OTP verification');
       }

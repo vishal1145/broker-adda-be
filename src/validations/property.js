@@ -65,6 +65,7 @@ export const createPropertySchema = Joi.object({
   facingDirection: Joi.string().valid("North","East","South","West"),
   possessionStatus: Joi.string().valid("Ready to Move","Under Construction","Upcoming"),
   postedBy: Joi.string().valid("Broker","Builder","Owner","Admin"),
+  createdBy: Joi.string().valid("broker","customer"),
   verificationStatus: Joi.string().valid("Verified","Unverified").default("Unverified"),
   propertyAgeYears: Joi.number().integer().min(0),
 }).unknown(false);
@@ -137,6 +138,7 @@ export const updatePropertySchema = Joi.object({
   facingDirection: Joi.string().valid("North","East","South","West").optional(),
   possessionStatus: Joi.string().valid("Ready to Move","Under Construction","Upcoming").optional(),
   postedBy: Joi.string().valid("Broker","Builder","Owner","Admin").optional(),
+  createdBy: Joi.string().valid("broker","customer").optional(),
   verificationStatus: Joi.string().valid("Verified","Unverified").optional(),
   propertyAgeYears: Joi.number().integer().min(0).optional(),
 }).unknown(false);

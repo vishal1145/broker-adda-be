@@ -8,7 +8,8 @@ import {
   getPropertyMetrics,
   updateProperty,
   deleteProperty,
-  getPropertiesByMonth
+  getPropertiesByMonth,
+  transferProperty
 } from "../controllers/propertyController.js";
 import { validate } from "../middleware/validation.js";
 import { validateCreateProperty, validateUpdateProperty } from "../validations/property.js"
@@ -37,5 +38,6 @@ router.patch("/:id/reject", authenticate, rejectProperty);
 // Update and delete routes (authenticated - broker can update/delete their own, admin can do all)
 router.put("/:id", authenticate, uploadPropertyMedia, handleUploadError, normalizePropertyMedia, validateUpdateProperty, updateProperty);
 router.delete("/:id", authenticate, deleteProperty);
+router.post("/:id/transfer", transferProperty);
 
 export default router;
