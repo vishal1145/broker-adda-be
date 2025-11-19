@@ -18,6 +18,7 @@ import { getFileUrl } from '../middleware/upload.js';
 import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../utils/brokerCount.js';
 import { geocodeAddress } from '../utils/geocode.js';
 import { sendVerificationEmail, createNotification } from '../utils/notifications.js';
+import mongoose from 'mongoose';
 
 // Temporary OTP storage (in production, use Redis)
 const tempOTPStorage = new Map();
@@ -1157,9 +1158,14 @@ export const getProfile = async (req, res) => {
     let additionalDetails = null;
     
     if (user.role === 'broker') {
-      additionalDetails = await BrokerDetail.findOne({ userId: user._id }).populate('region', 'name description city state centerLocation radius');
+      additionalDetails = await BrokerDetail.findOne({ userId: user._id }).populate('region', 'name description city state centerLocation radius').lean();
+      const brokerSubscription = await Subscription.findOne({ user: new mongoose.Types.ObjectId(user._id), endDate: { $gt: new Date() } }).lean();
+      
+      if (additionalDetails) {
+        additionalDetails.subscription = brokerSubscription || null;
+      }
     } else if (user.role === 'customer') {
-      additionalDetails = await CustomerDetail.findOne({ userId: user._id }).populate('preferences.region', 'name description');
+      additionalDetails = await CustomerDetail.findOne({ userId: user._id }).populate('preferences.region', 'name description').lean();
     }
 
     return successResponse(res, 'Profile retrieved successfully', {

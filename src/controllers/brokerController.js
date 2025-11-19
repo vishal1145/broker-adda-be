@@ -39,6 +39,7 @@ export const getAllBrokers = async (req, res) => {
 
     // Build filter object
     const filter = {};
+    filter.role = 'broker';
     
     if (status) {
       filter.status = status;
