@@ -93,8 +93,8 @@ router.post('/verify-payment', authenticate, async (req, res) => {
   }
 });
 
-async function activateSubscription({ userId, planType, paymentDoc, periodValue, periodUnit, autoRenew = false }) {
-    const amount = paymentDoc.amount ;
+export async function activateSubscription({ userId, planType, paymentDoc, periodValue, periodUnit, autoRenew = false }) {
+    const amount = paymentDoc.amount || 0;
     const now = new Date();
     const existing = await Subscription.findOne({ user: userId, status: 'active' }).sort({ endDate: -1 });
   
@@ -117,7 +117,7 @@ async function activateSubscription({ userId, planType, paymentDoc, periodValue,
       startDate,
       endDate,
       status: 'active',
-      paymentRef: paymentDoc._id,
+      paymentRef: paymentDoc._id || null,
       autoRenew
     });
   

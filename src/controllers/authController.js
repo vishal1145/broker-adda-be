@@ -19,6 +19,7 @@ import { updateRegionBrokerCount, updateMultipleRegionBrokerCounts } from '../ut
 import { geocodeAddress } from '../utils/geocode.js';
 import { sendVerificationEmail, createNotification } from '../utils/notifications.js';
 import mongoose from 'mongoose';
+import { activateSubscription } from '../routes/payments.js';
 
 // Temporary OTP storage (in production, use Redis)
 const tempOTPStorage = new Map();
@@ -336,6 +337,7 @@ export const verifyOTP = async (req, res) => {
           role: 'broker'
         });
         await brokerDetail.save();
+        await activateSubscription({ userId: user._id, planType: 'Trial Plan', paymentDoc: { amount: 0 }, periodValue: 2, periodUnit: 'week', autoRenew: false });
         roleDetails = brokerDetail;
         console.log('Broker details created during registration OTP verification');
 

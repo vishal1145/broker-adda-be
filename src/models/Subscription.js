@@ -8,7 +8,7 @@ const subscriptionSchema = new mongoose.Schema({
 
   // period definition; default monthly
   periodValue: { type: Number, default: 1 }, // e.g., 1
-  periodUnit: { type: String, enum: ['day','month','year'], default: 'month' },
+  periodUnit: { type: String, enum: ['day','week','month','year'], default: 'month' },
 
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
