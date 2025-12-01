@@ -50,7 +50,17 @@ export const brokerUpdateSchema = Joi.object({
   adminNotes: Joi.string().max(500).optional(),
   // New fields
   content: Joi.string().trim().max(2000).optional(),
-  experience: experienceSchema.optional()
+  experience: experienceSchema.optional(),
+  // Languages spoken (optional)
+  languagesSpoken: Joi.array().items(
+    Joi.string().trim().max(50).allow('', null)
+  ).optional().allow(null),
+  // Service types: Buy, Sell, Rent (optional)
+  serviceType: Joi.array().items(
+    Joi.string().valid('Buy', 'Sell', 'Rent').trim()
+  ).optional().allow(null),
+  // Alternate phone number (optional)
+  alternateNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional().allow('', null)
 }).unknown(false);
 
 // Broker approval schema

@@ -65,7 +65,17 @@ export const completeProfileSchema = Joi.object({
     experienceYears: Joi.number().integer().min(0).max(50).optional().allow(null),
     experienceDescription: Joi.string().max(1000).trim().optional().allow('', null),
     achievements: Joi.array().items(Joi.string().max(200).trim()).optional(),
-    certifications: Joi.array().items(Joi.string().max(200).trim()).optional()
+    certifications: Joi.array().items(Joi.string().max(200).trim()).optional(),
+    // Languages spoken (optional)
+    languagesSpoken: Joi.array().items(
+      Joi.string().max(50).trim().allow('', null)
+    ).optional().allow(null),
+    // Service types: Buy, Sell, Rent (optional)
+    serviceType: Joi.array().items(
+      Joi.string().valid('Buy', 'Sell', 'Rent').trim()
+    ).optional().allow(null),
+    // Alternate phone number (optional)
+    alternateNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).optional().allow('', null)
   }).optional(),
   customerDetails: Joi.object({
     gender: Joi.string().valid('male', 'female', 'other').required(),

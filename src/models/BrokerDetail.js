@@ -201,6 +201,31 @@ const brokerDetailSchema = new mongoose.Schema({
       trim: true,
       maxlength: [200, 'Each certification cannot be more than 200 characters']
     }],
+  },
+  // Languages spoken (e.g., Hindi, English, etc.)
+  languagesSpoken: [{
+    type: String,
+    trim: true,
+    maxlength: [50, 'Each language cannot be more than 50 characters']
+  }],
+  // Service types: Buy, Sell, Rent
+  serviceType: [{
+    type: String,
+    enum: ['Buy', 'Sell', 'Rent'],
+    trim: true
+  }],
+  // Alternate phone number
+  alternateNumber: {
+    type: String,
+    validate: {
+      validator: function(v) {
+        // Allow empty string, null, or undefined
+        if (!v || v === '') return true;
+        // If value exists, validate against pattern
+        return /^\+?[1-9]\d{1,14}$/.test(v);
+      },
+      message: 'Please enter a valid alternate phone number'
+    }
   }
 }, {
   timestamps: true

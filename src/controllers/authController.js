@@ -712,6 +712,34 @@ export const completeProfile = async (req, res) => {
           }
         }
 
+        // Handle languagesSpoken explicitly - allow empty array or null
+        const requestLanguagesSpoken = roleSpecificData.brokerDetails?.languagesSpoken;
+        if (requestLanguagesSpoken !== undefined) {
+          if (Array.isArray(requestLanguagesSpoken)) {
+            brokerDetail.languagesSpoken = requestLanguagesSpoken
+              .filter(lang => lang !== null && lang !== undefined && String(lang).trim() !== '');
+          } else {
+            brokerDetail.languagesSpoken = [];
+          }
+        }
+
+        // Handle serviceType explicitly - allow empty array or null
+        const requestServiceType = roleSpecificData.brokerDetails?.serviceType;
+        if (requestServiceType !== undefined) {
+          if (Array.isArray(requestServiceType)) {
+            brokerDetail.serviceType = requestServiceType
+              .filter(type => type !== null && type !== undefined && ['Buy', 'Sell', 'Rent'].includes(type));
+          } else {
+            brokerDetail.serviceType = [];
+          }
+        }
+
+        // Handle alternateNumber explicitly - allow empty string or null
+        const requestAlternateNumber = roleSpecificData.brokerDetails?.alternateNumber;
+        if (requestAlternateNumber !== undefined) {
+          brokerDetail.alternateNumber = requestAlternateNumber === null || requestAlternateNumber === '' ? null : requestAlternateNumber;
+        }
+
         // Handle aboutUs explicitly - allow empty string or null
         const bd = roleSpecificData.brokerDetails || {};
         if (requestAboutUs !== undefined) {
@@ -857,6 +885,13 @@ export const completeProfile = async (req, res) => {
           specializations: Array.isArray(roleSpecificData.brokerDetails.specializations) 
             ? roleSpecificData.brokerDetails.specializations.filter(spec => spec !== null && spec !== undefined && String(spec).trim() !== '')
             : [],
+          languagesSpoken: Array.isArray(roleSpecificData.brokerDetails.languagesSpoken) 
+            ? roleSpecificData.brokerDetails.languagesSpoken.filter(lang => lang !== null && lang !== undefined && String(lang).trim() !== '')
+            : [],
+          serviceType: Array.isArray(roleSpecificData.brokerDetails.serviceType) 
+            ? roleSpecificData.brokerDetails.serviceType.filter(type => type !== null && type !== undefined && ['Buy', 'Sell', 'Rent'].includes(type))
+            : [],
+          alternateNumber: roleSpecificData.brokerDetails.alternateNumber || null,
           website: roleSpecificData.brokerDetails.website || '',
           socialMedia: {
             linkedin: roleSpecificData.brokerDetails.socialMedia?.linkedin || '',
