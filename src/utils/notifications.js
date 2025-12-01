@@ -305,7 +305,7 @@ export const createNotification = async ({
 };
 
 /**
- * Create notification for lead events
+ * Create notification for enquires events
  */
 export const createLeadNotification = async (userId, action, lead, actor = null) => {
   // Get customer name (handle both object and populated cases)
@@ -314,26 +314,26 @@ export const createLeadNotification = async (userId, action, lead, actor = null)
   const requirement = lead.requirement || '';
   
   const actionMessages = {
-    created: `New lead created for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}${requirement ? ` - ${requirement.substring(0, 50)}${requirement.length > 50 ? '...' : ''}` : ''}`,
-    updated: `Lead updated for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}`,
-    transferred: `Lead for ${customerName}${customerPhone ? ` (${customerPhone})` : ''} has been transferred to you`,
-    statusChanged: `Lead status changed for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}${lead.status ? ` to ${lead.status}` : ''}`,
-    deleted: `Lead deleted for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}`
+    created: `New enquires created for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}${requirement ? ` - ${requirement.substring(0, 50)}${requirement.length > 50 ? '...' : ''}` : ''}`,
+    updated: `Enquires updated for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}`,
+    transferred: `Enquires for ${customerName}${customerPhone ? ` (${customerPhone})` : ''} has been transferred to you`,
+    statusChanged: `Enquires status changed for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}${lead.status ? ` to ${lead.status}` : ''}`,
+    deleted: `Enquires deleted for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}`
   };
 
   const titles = {
-    created: `New Lead: ${customerName}`,
-    updated: `Lead Updated: ${customerName}`,
-    transferred: `Lead Transferred: ${customerName}`,
-    statusChanged: `Lead Status Changed: ${customerName}`,
-    deleted: `Lead Deleted: ${customerName}`
+    created: `New Enquires: ${customerName}`,
+    updated: `Enquires Updated: ${customerName}`,
+    transferred: `Enquires Transferred: ${customerName}`,
+    statusChanged: `Enquires Status Changed: ${customerName}`,
+    deleted: `Enquires Deleted: ${customerName}`
   };
 
   return await createNotification({
     userId,
     type: 'lead',
-    title: titles[action] || `Lead Activity: ${customerName}`,
-    message: actionMessages[action] || `Lead activity for ${customerName}: ${action}`,
+    title: titles[action] || `Enquires Activity: ${customerName}`,
+    message: actionMessages[action] || `Enquires activity for ${customerName}: ${action}`,
     priority: action === 'transferred' ? 'high' : 'medium',
     relatedEntity: {
       entityType: 'Lead',
@@ -481,8 +481,8 @@ export const createRegionTransferNotification = async (regionId, fromBrokerId, l
     const notification = await createNotification({
       userId: senderUserId, // Notification goes to SENDER broker (who transferred to region)
       type: 'transfer',
-      title: `Lead Shared with ${regionName} Region`,
-      message: `A lead for ${customerName} has been shared with brokers in ${regionName} region`,
+      title: `Enquires Shared with ${regionName} Region`,
+      message: `An enquiry for ${customerName} has been shared with brokers in ${regionName} region`,
       priority: 'high',
       relatedEntity: {
         entityType: 'Lead',
@@ -557,8 +557,8 @@ export const createAllBrokersTransferNotification = async (fromBrokerId, lead, f
     const notification = await createNotification({
       userId: senderUserId, // Notification goes to SENDER broker (who transferred to all)
       type: 'transfer',
-      title: 'Lead Shared with All Brokers',
-      message: `A lead for ${customerName} has been shared with all brokers`,
+      title: 'Enquires Shared with All Brokers',
+      message: `An enquiry for ${customerName} has been shared with all brokers`,
       priority: 'high',
       relatedEntity: {
         entityType: 'Lead',
@@ -646,8 +646,8 @@ export const createTransferNotification = async (toBrokerId, fromBrokerId, lead,
     const notification = await createNotification({
       userId: recipientUserId, // Notification goes to RECIPIENT broker (toBroker's userId)
       type: 'transfer',
-      title: 'Lead Transferred to You',
-      message: `A lead for ${lead.customerName || 'customer'} has been transferred to you by ${senderName}`,
+      title: 'Enquires Transferred to You',
+      message: `An enquiry for ${lead.customerName || 'customer'} has been transferred to you by ${senderName}`,
       priority: 'high',
       relatedEntity: {
         entityType: 'Lead',
