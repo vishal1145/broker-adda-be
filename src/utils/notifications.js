@@ -5,7 +5,7 @@ import User from '../models/User.js';
 import Region from '../models/Region.js';
 import Lead from '../models/Lead.js';
 import Message from '../models/Message.js';
-
+import { generateEmailTemplate } from './emailTemplate.js';
 
 // Helper function to create SMTP transporter with server-friendly settings
 const createSMTPTransporter = async () => {
@@ -41,7 +41,7 @@ const createSMTPTransporter = async () => {
   });
 };
 
-const sendEmailNotification = async (userEmail, title, message) => {
+const sendEmailNotification = async (userEmail, title, message, options = {}) => {
   try {
     // Configure email transporter with server-friendly settings
     const transporter = await createSMTPTransporter();
@@ -52,12 +52,32 @@ const sendEmailNotification = async (userEmail, title, message) => {
       return false;
     }
 
+    // Get user name if available (for personalization)
+    let userName = options.userName || 'User';
+    if (!options.userName && options.userId) {
+      try {
+        const user = await User.findById(options.userId).select('name').lean();
+        if (user?.name) {
+          userName = user.name;
+        }
+      } catch (err) {
+        // Ignore error, use default
+      }
+    }
+
+    // Generate email template with header, footer, and proper formatting
+    const emailContent = generateEmailTemplate({
+      title: title,
+      message: message,
+      userName: userName
+    });
+
     const info = await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: userEmail,
       subject: title,
-      text: message,
-      html: `<p>${message}</p>`
+      text: emailContent.text,
+      html: emailContent.html
     });
 
     console.log(`Email notification sent successfully to ${userEmail}. Message ID: ${info.messageId}`);
@@ -254,7 +274,7 @@ export const createNotification = async ({
     }
 
     // Get user preferences for email/SMS notifications
-    const user = await User.findById(userId).select('email phone emailNotification smsNotification pushNotification');
+    const user = await User.findById(userId).select('email phone name emailNotification smsNotification pushNotification');
     
     const notification = new Notification({
       userId,
@@ -272,7 +292,10 @@ export const createNotification = async ({
     // Send email if enabled and user has email
     if (user && user.emailNotification && user.email) {
       try {
-        await sendEmailNotification(user.email, title, message);
+        await sendEmailNotification(user.email, title, message, {
+          userId: userId,
+          userName: user.name || undefined
+        });
       } catch (error) {
         console.error('Error sending email notification:', error);
       }
