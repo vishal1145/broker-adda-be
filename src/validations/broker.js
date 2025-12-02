@@ -39,7 +39,11 @@ export const brokerUpdateSchema = Joi.object({
   ).optional(),
   kycDocs: Joi.object({
     aadhar: Joi.string().optional(),
+    aadharFront: Joi.string().optional(),
+    aadharBack: Joi.string().optional(),
     pan: Joi.string().optional(),
+    panFront: Joi.string().optional(),
+    panBack: Joi.string().optional(),
     gst: Joi.string().optional(),
     brokerLicense: Joi.string().optional(),
     companyId: Joi.string().optional()
@@ -71,8 +75,8 @@ export const brokerRejectionSchema = Joi.object({});
 
 // Broker query parameters schema
 export const brokerQuerySchema = Joi.object({
-  page: Joi.number().integer().min(1).default(1),
-  limit: Joi.number().integer().min(1).max(100).default(10),
+  page: Joi.number().integer().min(1).optional(),
+  limit: Joi.number().integer().min(1).max(100).optional(),
   status: Joi.string().valid('active', 'inactive','online','busy').optional(),
   approvedByAdmin: Joi.string().valid('blocked', 'unblocked').optional(),
   city: Joi.string().trim().optional(),

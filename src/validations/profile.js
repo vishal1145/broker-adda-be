@@ -51,7 +51,11 @@ export const completeProfileSchema = Joi.object({
     kycDocs: Joi.alternatives().try(
       Joi.object({
         aadhar: Joi.string().optional().allow('', null),
+        aadharFront: Joi.string().optional().allow('', null),
+        aadharBack: Joi.string().optional().allow('', null),
         pan: Joi.string().optional().allow('', null),
+        panFront: Joi.string().optional().allow('', null),
+        panBack: Joi.string().optional().allow('', null),
         gst: Joi.string().optional().allow('', null),
         brokerLicense: Joi.string().optional().allow('', null),
         companyId: Joi.string().optional().allow('', null)
@@ -93,7 +97,11 @@ export const completeProfileSchema = Joi.object({
   }).unknown(true).optional(),
   // File upload fields (handled by multer, validated here as optional)
   aadhar: Joi.any().optional(),
+  aadharFront: Joi.any().optional(),
+  aadharBack: Joi.any().optional(),
   pan: Joi.any().optional(),
+  panFront: Joi.any().optional(),
+  panBack: Joi.any().optional(),
   gst: Joi.any().optional(),
   brokerLicense: Joi.any().optional(),
   companyId: Joi.any().optional(),

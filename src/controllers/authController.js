@@ -615,7 +615,12 @@ export const verifyOTP = async (req, res) => {
 // Complete profile after OTP verification
 export const completeProfile = async (req, res) => {
   try {
-    const { phone, name, email, content, aboutUs, experienceYears, experienceDescription, achievements, certifications, aadhar, pan, gst, brokerLicense, companyId, ...roleSpecificData } = req.body;
+    const { 
+      phone, name, email, content, aboutUs, experienceYears, experienceDescription, achievements, certifications, 
+      aadhar, aadharFront, aadharBack, pan, panFront, panBack, gst, brokerLicense, companyId,
+      removePanFront, removePanBack, removeAadharFront, removeAadharBack,
+      ...roleSpecificData 
+    } = req.body;
     const files = req.files;
 
     const user = await User.findOne({ phone });
@@ -796,8 +801,20 @@ export const completeProfile = async (req, res) => {
           if (files.aadhar) {
             brokerDetail.kycDocs.aadhar = getFileUrl(req, files.aadhar[0].path);
           }
+          if (files.aadharFront) {
+            brokerDetail.kycDocs.aadharFront = getFileUrl(req, files.aadharFront[0].path);
+          }
+          if (files.aadharBack) {
+            brokerDetail.kycDocs.aadharBack = getFileUrl(req, files.aadharBack[0].path);
+          }
           if (files.pan) {
             brokerDetail.kycDocs.pan = getFileUrl(req, files.pan[0].path);
+          }
+          if (files.panFront) {
+            brokerDetail.kycDocs.panFront = getFileUrl(req, files.panFront[0].path);
+          }
+          if (files.panBack) {
+            brokerDetail.kycDocs.panBack = getFileUrl(req, files.panBack[0].path);
           }
           if (files.gst) {
             brokerDetail.kycDocs.gst = getFileUrl(req, files.gst[0].path);
@@ -819,13 +836,31 @@ export const completeProfile = async (req, res) => {
         // Handle both nested (brokerDetails.kycDocs) and top-level form fields (aadhar, pan, etc.)
         
         // First, check top-level form fields for deletions (when sent as empty strings)
-        const topLevelKycFields = { aadhar, pan, gst, brokerLicense, companyId };
-        const kycDocFields = ['aadhar', 'pan', 'gst', 'brokerLicense', 'companyId'];
+        const topLevelKycFields = { 
+          aadhar, aadharFront, aadharBack, 
+          pan, panFront, panBack, 
+          gst, brokerLicense, companyId 
+        };
+        const kycDocFields = ['aadhar', 'aadharFront', 'aadharBack', 'pan', 'panFront', 'panBack', 'gst', 'brokerLicense', 'companyId'];
+        
+        // Handle remove flags (removePanFront, removePanBack, removeAadharFront, removeAadharBack)
+        const removeFlags = {
+          panFront: removePanFront === true || removePanFront === 'true',
+          panBack: removePanBack === true || removePanBack === 'true',
+          aadharFront: removeAadharFront === true || removeAadharFront === 'true',
+          aadharBack: removeAadharBack === true || removeAadharBack === 'true'
+        };
         
         kycDocFields.forEach(field => {
+          // Check if remove flag is set for this field
+          const shouldRemove = removeFlags[field] === true;
+          
           // Check if top-level field is sent as empty string or null (form field deletion)
-          // Simple: if field is empty/null, delete it
-          if (topLevelKycFields[field] !== undefined && (topLevelKycFields[field] === '' || topLevelKycFields[field] === null)) {
+          const isEmptyField = topLevelKycFields[field] !== undefined && 
+                               (topLevelKycFields[field] === '' || topLevelKycFields[field] === null);
+          
+          // Delete if remove flag is set OR field is empty/null
+          if (shouldRemove || isEmptyField) {
             // Skip deletion if a file was uploaded for this field (file upload takes precedence)
             const hasFileUpload = files && files[field];
             if (!hasFileUpload) {
@@ -843,13 +878,16 @@ export const completeProfile = async (req, res) => {
           } else if (typeof requestKycDocs === 'object') {
             // Handle individual KYC doc deletions from nested object
             kycDocFields.forEach(field => {
-              // Only process if field is explicitly provided in request
-              if (field in requestKycDocs) {
+              // Check if remove flag is set for this field
+              const shouldRemove = removeFlags[field] === true;
+              
+              // Only process if field is explicitly provided in request OR remove flag is set
+              if (field in requestKycDocs || shouldRemove) {
                 // Skip deletion if a file was uploaded for this field (file upload takes precedence)
                 const hasFileUpload = files && files[field];
                 if (!hasFileUpload) {
-                  // Delete if explicitly set to empty/null/undefined
-                  if (requestKycDocs[field] === '' || requestKycDocs[field] === null || requestKycDocs[field] === undefined) {
+                  // Delete if explicitly set to empty/null/undefined OR remove flag is set
+                  if (shouldRemove || requestKycDocs[field] === '' || requestKycDocs[field] === null || requestKycDocs[field] === undefined) {
                     brokerDetail.kycDocs[field] = null;
                   }
                 }
@@ -939,8 +977,20 @@ export const completeProfile = async (req, res) => {
           if (files.aadhar) {
             newBrokerDetail.kycDocs.aadhar = getFileUrl(req, files.aadhar[0].path);
           }
+          if (files.aadharFront) {
+            newBrokerDetail.kycDocs.aadharFront = getFileUrl(req, files.aadharFront[0].path);
+          }
+          if (files.aadharBack) {
+            newBrokerDetail.kycDocs.aadharBack = getFileUrl(req, files.aadharBack[0].path);
+          }
           if (files.pan) {
             newBrokerDetail.kycDocs.pan = getFileUrl(req, files.pan[0].path);
+          }
+          if (files.panFront) {
+            newBrokerDetail.kycDocs.panFront = getFileUrl(req, files.panFront[0].path);
+          }
+          if (files.panBack) {
+            newBrokerDetail.kycDocs.panBack = getFileUrl(req, files.panBack[0].path);
           }
           if (files.gst) {
             newBrokerDetail.kycDocs.gst = getFileUrl(req, files.gst[0].path);

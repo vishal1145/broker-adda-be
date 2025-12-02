@@ -119,7 +119,19 @@ const brokerDetailSchema = new mongoose.Schema({
     aadhar: {
       type: String
     },
+    aadharFront: {
+      type: String
+    },
+    aadharBack: {
+      type: String
+    },
     pan: {
+      type: String
+    },
+    panFront: {
+      type: String
+    },
+    panBack: {
       type: String
     },
     gst: {

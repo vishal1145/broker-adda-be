@@ -8,7 +8,8 @@ export const validate = (schema, source = 'body') => {
       
       const { error } = await schema.validateAsync(dataToValidate, {
         allowUnknown: true,
-        stripUnknown: false
+        stripUnknown: false,
+        abortEarly: false
       });
       
       if (error) {

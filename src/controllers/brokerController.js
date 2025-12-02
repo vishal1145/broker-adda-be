@@ -14,9 +14,19 @@ import mongoose from 'mongoose';
 // Get all brokers (with pagination and filtering) - All roles allowed
 export const getAllBrokers = async (req, res) => {
   try {
+    // Extract query parameters, treating empty strings as undefined
+    const cleanQuery = {};
+    Object.keys(req.query || {}).forEach(key => {
+      const value = req.query[key];
+      // Only include non-empty values (empty strings are treated as not provided)
+      if (value !== undefined && value !== null && value !== '') {
+        cleanQuery[key] = value;
+      }
+    });
+    
     const { 
-      page , 
-      limit , 
+      page, 
+      limit, 
       status, 
       approvedByAdmin, 
       regionId,
@@ -35,17 +45,26 @@ export const getAllBrokers = async (req, res) => {
       latitude,
       longitude,
       radius // in kilometers, default 50km if not provided
-    } = req.query;
+    } = cleanQuery;
 
     // Build filter object
-    const filter = {};
-    filter.role = 'broker';
+    // Include brokers with role='broker' OR role not set (legacy brokers)
+    // This ensures we get all brokers even if some don't have the role field set
+    const filter = {
+      $or: [
+        { role: 'broker' },
+        { role: { $exists: false } },
+        { role: null }
+      ]
+    };
     
-    if (status) {
+    // Only add status filter if explicitly provided (not empty string)
+    if (status && status !== '') {
       filter.status = status;
     }
     
-    if (approvedByAdmin !== undefined) {
+    // Only add approvedByAdmin filter if explicitly provided (not empty string or null)
+    if (approvedByAdmin !== undefined && approvedByAdmin !== null && approvedByAdmin !== '') {
       filter.approvedByAdmin = approvedByAdmin;
     }
     
@@ -155,9 +174,10 @@ export const getAllBrokers = async (req, res) => {
       }
     }
 
-    // Calculate pagination (only if page/limit are provided)
-    const pageNum = page ? parseInt(page) : null;
-    const limitNum = limit ? parseInt(limit) : null;
+    // Calculate pagination (only if page/limit are explicitly provided)
+    // If neither is provided, return ALL brokers without pagination
+    const pageNum = (page !== undefined && page !== null && page !== '') ? parseInt(page) : null;
+    const limitNum = (limit !== undefined && limit !== null && limit !== '') ? parseInt(limit) : null;
     const skip = (pageNum && limitNum) ? (pageNum - 1) * limitNum : 0;
 
     // Build sort object
@@ -178,6 +198,15 @@ export const getAllBrokers = async (req, res) => {
     // We'll fetch all brokers and calculate distance for those with coordinates
     // Brokers without coordinates will be included at the end (if no radius filter)
     let finalFilter = filter;
+    
+    // Debug: Log the filter being applied (remove in production)
+    console.log('Broker filter being applied:', JSON.stringify(finalFilter, null, 2));
+    console.log('Pagination params - pageNum:', pageNum, 'limitNum:', limitNum);
+    
+    // Debug: Check total brokers in database vs filtered
+    const totalAllBrokersInDB = await BrokerDetail.countDocuments({});
+    const totalFilteredBrokers = await BrokerDetail.countDocuments(finalFilter);
+    console.log(`Total brokers in DB: ${totalAllBrokersInDB}, Filtered brokers: ${totalFilteredBrokers}`);
 
     // Helper function to calculate distance in km using Haversine formula
     const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
@@ -211,6 +240,9 @@ export const getAllBrokers = async (req, res) => {
       }
       
       brokers = await brokersQuery;
+      
+      // Debug: Log how many brokers were fetched
+      console.log(`Fetched ${brokers.length} brokers from database (no geospatial filter)`);
     }
 
     // If coordinates are provided, calculate distance for all brokers and filter by radius if provided
@@ -313,6 +345,8 @@ export const getAllBrokers = async (req, res) => {
       }
     } else {
       totalBrokers = await BrokerDetail.countDocuments(finalFilter);
+      // Debug: Log the total count
+      console.log(`Total brokers count from database: ${totalBrokers}`);
     }
     const totalPages = limitNum ? Math.ceil(totalBrokers / limitNum) : 1;
 
@@ -431,8 +465,20 @@ export const getAllBrokers = async (req, res) => {
         if (brokerObj.kycDocs.aadhar) {
           brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
         }
+        if (brokerObj.kycDocs.aadharFront) {
+          brokerObj.kycDocs.aadharFront = getFileUrl(req, brokerObj.kycDocs.aadharFront);
+        }
+        if (brokerObj.kycDocs.aadharBack) {
+          brokerObj.kycDocs.aadharBack = getFileUrl(req, brokerObj.kycDocs.aadharBack);
+        }
         if (brokerObj.kycDocs.pan) {
           brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+        }
+        if (brokerObj.kycDocs.panFront) {
+          brokerObj.kycDocs.panFront = getFileUrl(req, brokerObj.kycDocs.panFront);
+        }
+        if (brokerObj.kycDocs.panBack) {
+          brokerObj.kycDocs.panBack = getFileUrl(req, brokerObj.kycDocs.panBack);
         }
         if (brokerObj.kycDocs.gst) {
           brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
@@ -488,17 +534,19 @@ export const getAllBrokers = async (req, res) => {
 
     const brokersWithUrls = await Promise.all(brokersWithUrlsPromises);
 
-    // Use the already parsed page number (or null if no pagination)
+    // Use the already parsed page number (or 1 if no pagination provided)
+    // If no pagination is provided, show all brokers and set pagination info accordingly
     const currentPage = pageNum || 1;
+    const isPaginationApplied = pageNum !== null && limitNum !== null;
     
     return successResponse(res, 'Brokers retrieved successfully', {
       brokers: brokersWithUrls,
       pagination: {
-        currentPage,
-        totalPages: totalPages || 1,
+        currentPage: isPaginationApplied ? currentPage : 1,
+        totalPages: isPaginationApplied ? totalPages : 1,
         totalBrokers,
-        hasNextPage: pageNum && limitNum ? currentPage < totalPages : false,
-        hasPrevPage: pageNum && limitNum ? currentPage > 1 : false
+        hasNextPage: isPaginationApplied ? currentPage < totalPages : false,
+        hasPrevPage: isPaginationApplied ? currentPage > 1 : false
       },
       stats: {
         totalBlockedBrokers,
@@ -537,8 +585,20 @@ export const getBrokerById = async (req, res) => {
       if (brokerObj.kycDocs.aadhar) {
         brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
       }
+      if (brokerObj.kycDocs.aadharFront) {
+        brokerObj.kycDocs.aadharFront = getFileUrl(req, brokerObj.kycDocs.aadharFront);
+      }
+      if (brokerObj.kycDocs.aadharBack) {
+        brokerObj.kycDocs.aadharBack = getFileUrl(req, brokerObj.kycDocs.aadharBack);
+      }
       if (brokerObj.kycDocs.pan) {
         brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+      }
+      if (brokerObj.kycDocs.panFront) {
+        brokerObj.kycDocs.panFront = getFileUrl(req, brokerObj.kycDocs.panFront);
+      }
+      if (brokerObj.kycDocs.panBack) {
+        brokerObj.kycDocs.panBack = getFileUrl(req, brokerObj.kycDocs.panBack);
       }
       if (brokerObj.kycDocs.gst) {
         brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
@@ -713,8 +773,20 @@ export const approveBroker = async (req, res) => {
       if (brokerObj.kycDocs.aadhar) {
         brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
       }
+      if (brokerObj.kycDocs.aadharFront) {
+        brokerObj.kycDocs.aadharFront = getFileUrl(req, brokerObj.kycDocs.aadharFront);
+      }
+      if (brokerObj.kycDocs.aadharBack) {
+        brokerObj.kycDocs.aadharBack = getFileUrl(req, brokerObj.kycDocs.aadharBack);
+      }
       if (brokerObj.kycDocs.pan) {
         brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+      }
+      if (brokerObj.kycDocs.panFront) {
+        brokerObj.kycDocs.panFront = getFileUrl(req, brokerObj.kycDocs.panFront);
+      }
+      if (brokerObj.kycDocs.panBack) {
+        brokerObj.kycDocs.panBack = getFileUrl(req, brokerObj.kycDocs.panBack);
       }
       if (brokerObj.kycDocs.gst) {
         brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
@@ -843,8 +915,20 @@ export const rejectBroker = async (req, res) => {
       if (brokerObj.kycDocs.aadhar) {
         brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
       }
+      if (brokerObj.kycDocs.aadharFront) {
+        brokerObj.kycDocs.aadharFront = getFileUrl(req, brokerObj.kycDocs.aadharFront);
+      }
+      if (brokerObj.kycDocs.aadharBack) {
+        brokerObj.kycDocs.aadharBack = getFileUrl(req, brokerObj.kycDocs.aadharBack);
+      }
       if (brokerObj.kycDocs.pan) {
         brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+      }
+      if (brokerObj.kycDocs.panFront) {
+        brokerObj.kycDocs.panFront = getFileUrl(req, brokerObj.kycDocs.panFront);
+      }
+      if (brokerObj.kycDocs.panBack) {
+        brokerObj.kycDocs.panBack = getFileUrl(req, brokerObj.kycDocs.panBack);
       }
       if (brokerObj.kycDocs.gst) {
         brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
@@ -972,8 +1056,20 @@ export const updateBrokerVerification = async (req, res) => {
       if (brokerObj.kycDocs.aadhar) {
         brokerObj.kycDocs.aadhar = getFileUrl(req, brokerObj.kycDocs.aadhar);
       }
+      if (brokerObj.kycDocs.aadharFront) {
+        brokerObj.kycDocs.aadharFront = getFileUrl(req, brokerObj.kycDocs.aadharFront);
+      }
+      if (brokerObj.kycDocs.aadharBack) {
+        brokerObj.kycDocs.aadharBack = getFileUrl(req, brokerObj.kycDocs.aadharBack);
+      }
       if (brokerObj.kycDocs.pan) {
         brokerObj.kycDocs.pan = getFileUrl(req, brokerObj.kycDocs.pan);
+      }
+      if (brokerObj.kycDocs.panFront) {
+        brokerObj.kycDocs.panFront = getFileUrl(req, brokerObj.kycDocs.panFront);
+      }
+      if (brokerObj.kycDocs.panBack) {
+        brokerObj.kycDocs.panBack = getFileUrl(req, brokerObj.kycDocs.panBack);
       }
       if (brokerObj.kycDocs.gst) {
         brokerObj.kycDocs.gst = getFileUrl(req, brokerObj.kycDocs.gst);
