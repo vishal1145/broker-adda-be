@@ -194,7 +194,7 @@ export const getFileUrl = (req, filePath) => {
       baseUrl = process.env.BACKEND_URL || process.env.STATIC_URL;
     } else if (process.env.NODE_ENV === 'production') {
       // Production: always use backend server for static files
-      baseUrl = 'https://broker-adda-be.algofolks.com';
+baseUrl = process.env.IMAGE_URL || 'https://broker-adda-be.fly.dev';
     } else {
       // Development: use request host (which should be backend)
       baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -204,7 +204,7 @@ export const getFileUrl = (req, filePath) => {
     if (process.env.BASE_URL) {
       baseUrl = process.env.BASE_URL;
     } else if (process.env.NODE_ENV === 'production') {
-      baseUrl = 'https://broker-adda-be.algofolks.com';
+baseUrl = process.env.IMAGE_URL || 'https://broker-adda-be.fly.dev';
     } else {
       baseUrl = `${req.protocol}://${req.get('host')}`;
     }
