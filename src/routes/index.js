@@ -13,6 +13,7 @@ import paymentRoutes from './payments.js';
 import brokerRatingRoutes from './brokerRatings.js';
 import propertyRatingRoutes from './propertyRatings.js';
 import adminRoutes from './admin.js';
+import emailSubscriptionRoutes from './emailSubscription.js';
 const router = express.Router();
 
 // API routes
@@ -30,6 +31,7 @@ router.use('/payments', paymentRoutes);
 router.use('/broker-ratings', brokerRatingRoutes);
 router.use('/property-ratings', propertyRatingRoutes);
 router.use('/admin', adminRoutes);
+router.use('/email-subscription', emailSubscriptionRoutes);
 
 export default router;
 
