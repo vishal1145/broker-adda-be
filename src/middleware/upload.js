@@ -152,6 +152,29 @@ export const normalizePropertyMedia = (req, res, next) => {
   next();
 };
 
+// Configure multer for CSV uploads (memory storage)
+const csvStorage = multer.memoryStorage();
+
+const csvFileFilter = (req, file, cb) => {
+  // Allow only CSV files
+  if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only CSV files are allowed'), false);
+  }
+};
+
+const csvUpload = multer({
+  storage: csvStorage,
+  fileFilter: csvFileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit for CSV
+  }
+});
+
+// Middleware for CSV file upload
+export const uploadCSV = csvUpload.single('csvFile');
+
 // Error handling middleware
 export const handleUploadError = (error, req, res, next) => {
   if (error instanceof multer.MulterError) {

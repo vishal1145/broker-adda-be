@@ -14,6 +14,7 @@ import brokerRatingRoutes from './brokerRatings.js';
 import propertyRatingRoutes from './propertyRatings.js';
 import adminRoutes from './admin.js';
 import emailSubscriptionRoutes from './emailSubscription.js';
+import importRoutes from './import.js';
 const router = express.Router();
 
 // API routes
@@ -32,6 +33,7 @@ router.use('/broker-ratings', brokerRatingRoutes);
 router.use('/property-ratings', propertyRatingRoutes);
 router.use('/admin', adminRoutes);
 router.use('/email-subscription', emailSubscriptionRoutes);
+router.use('/import', importRoutes);
 
 export default router;
 
