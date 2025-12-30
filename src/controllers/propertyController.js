@@ -622,7 +622,14 @@ export const getPropertyById = async (req, res) => {
     }
 
 const doc = await Property.findById(id, projection)
-  .populate("broker", "name email phone firmName licenseNumber status brokerImage")
+  .populate({
+    path: "broker",
+    select: "name email phone firmName licenseNumber status brokerImage region",
+    populate: {
+      path: "region",
+      select: "name"
+    }
+  })
   .populate("region", "name description city state centerLocation radius")
   // .populate("inquiries", "name email phone message createdAt") // remove/disable
   .lean();
