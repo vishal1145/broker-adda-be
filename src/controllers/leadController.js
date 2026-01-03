@@ -213,7 +213,7 @@ export const createLead = async (req, res) => {
     const lead = new Lead(payload);
     await lead.save();
 
-    // ---------------- ZAPIER INTEGRATION (NEW) ----------------
+    // ---------------- ZAPIER INTEGRATION (NEW) -----------------
     sendToZapier(process.env.ZAPIER_LEAD_WEBHOOK, {
       event: "lead_created",
       leadId: lead._id.toString(),
@@ -230,7 +230,7 @@ export const createLead = async (req, res) => {
       source: "brokergully_website",
       createdAt: lead.createdAt,
     });
-    // ------------------------------------------------------------
+    // -------------------------------------------------------------
 
     // Create notification for lead creation (non-blocking - fire and forget)
     // Use userId from token (req.user._id)

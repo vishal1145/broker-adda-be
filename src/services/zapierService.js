@@ -6,7 +6,7 @@ export const sendToZapier = async (webhookUrl, payload) => {
   try {
     await axios.post(webhookUrl, payload, {
       headers: { "Content-Type": "application/json" },
-      timeout: 3000,
+      timeout: 3500,
     });
   } catch (err) {
     console.error("Zapier webhook failed:", err.message);
