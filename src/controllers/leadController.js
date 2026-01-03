@@ -1,30 +1,44 @@
-import Lead from '../models/Lead.js';
-import Property from '../models/Property.js';
-import Chat from '../models/Chat.js';
-import mongoose from 'mongoose';
-import { getFileUrl } from '../middleware/upload.js';
-import BrokerDetail from '../models/BrokerDetail.js';
-import { successResponse, errorResponse, serverError } from '../utils/response.js';
-import { createLeadNotification, createTransferNotification, createAllBrokersTransferNotification, createRegionTransferNotification } from '../utils/notifications.js';
-import User from '../models/User.js';
+import Lead from "../models/Lead.js";
+import Property from "../models/Property.js";
+import Chat from "../models/Chat.js";
+import mongoose from "mongoose";
+import { getFileUrl } from "../middleware/upload.js";
+import BrokerDetail from "../models/BrokerDetail.js";
+import {
+  successResponse,
+  errorResponse,
+  serverError,
+} from "../utils/response.js";
+import {
+  createLeadNotification,
+  createTransferNotification,
+  createAllBrokersTransferNotification,
+  createRegionTransferNotification,
+} from "../utils/notifications.js";
+import User from "../models/User.js";
+import { sendToZapier } from "../services/zapierService.js";
 
 // Helpers
 const findBrokerDetailIdByUserId = async (userId) => {
-  const broker = await BrokerDetail.findOne({ userId }).select('_id');
+  const broker = await BrokerDetail.findOne({ userId }).select("_id");
   return broker ? broker._id : null;
 };
 
 const findBrokerDetailWithRegionsByUserId = async (userId) => {
-  const broker = await BrokerDetail.findOne({ userId }).select('_id region');
+  const broker = await BrokerDetail.findOne({ userId }).select("_id region");
   return broker;
 };
 
 const buildTransferFilterForBroker = (brokerDetailId, brokerRegions = []) => {
   if (!brokerDetailId) return null;
 
-  const brokerRegionIds = brokerRegions.map(r => 
-    mongoose.Types.ObjectId.isValid(r) ? new mongoose.Types.ObjectId(String(r)) : r
-  ).filter(Boolean);
+  const brokerRegionIds = brokerRegions
+    .map((r) =>
+      mongoose.Types.ObjectId.isValid(r)
+        ? new mongoose.Types.ObjectId(String(r))
+        : r
+    )
+    .filter(Boolean);
 
   // Build filter based on shareType:
   // 1. 'all' - show to all brokers (no specific broker filter needed)
@@ -34,31 +48,35 @@ const buildTransferFilterForBroker = (brokerDetailId, brokerRegions = []) => {
     $or: [
       // Individual transfers: broker is the toBroker
       {
-        'transfers': {
+        transfers: {
           $elemMatch: {
-            shareType: 'individual',
-            toBroker: brokerDetailId
-          }
-        }
+            shareType: "individual",
+            toBroker: brokerDetailId,
+          },
+        },
       },
       // Region transfers: broker has the same region as transfer.region
-      ...(brokerRegionIds.length > 0 ? [{
-        'transfers': {
-          $elemMatch: {
-            shareType: 'region',
-            region: { $in: brokerRegionIds }
-          }
-        }
-      }] : []),
+      ...(brokerRegionIds.length > 0
+        ? [
+            {
+              transfers: {
+                $elemMatch: {
+                  shareType: "region",
+                  region: { $in: brokerRegionIds },
+                },
+              },
+            },
+          ]
+        : []),
       // All transfers: show to all brokers (brokerDetailId can be any broker)
       {
-        'transfers': {
+        transfers: {
           $elemMatch: {
-            shareType: 'all'
-          }
-        }
-      }
-    ]
+            shareType: "all",
+          },
+        },
+      },
+    ],
   };
 };
 
@@ -72,23 +90,23 @@ const applyBrokerDefaults = (payload, brokerDetailId) => {
   }
 
   if (Array.isArray(updated.transfers)) {
-    updated.transfers = updated.transfers.map(t => {
-      const shareType = t?.shareType || 'individual';
+    updated.transfers = updated.transfers.map((t) => {
+      const shareType = t?.shareType || "individual";
       const transfer = {
         fromBroker: t?.fromBroker || brokerDetailId,
-        shareType: shareType
+        shareType: shareType,
       };
-      
+
       // Only add toBroker if shareType is 'individual'
-      if (shareType === 'individual' && t?.toBroker) {
+      if (shareType === "individual" && t?.toBroker) {
         transfer.toBroker = t.toBroker;
       }
-      
+
       // Only add region if shareType is 'region'
-      if (shareType === 'region' && t?.region) {
+      if (shareType === "region" && t?.region) {
         transfer.region = t.region;
       }
-      
+
       return transfer;
     });
   }
@@ -101,10 +119,13 @@ const validateBrokerRefsExist = async (payload) => {
     // Check if createdBy exists in BrokerDetail
     const brokerExists = await BrokerDetail.exists({ _id: payload.createdBy });
     // Check if createdBy exists in User table with role='admin'
-    const adminExists = await User.exists({ _id: payload.createdBy, role: 'admin' });
-    
+    const adminExists = await User.exists({
+      _id: payload.createdBy,
+      role: "admin",
+    });
+
     if (!brokerExists && !adminExists) {
-      return 'Invalid createdBy: broker or admin not found';
+      return "Invalid createdBy: broker or admin not found";
     }
   }
 
@@ -112,11 +133,11 @@ const validateBrokerRefsExist = async (payload) => {
     for (const t of payload.transfers) {
       if (t?.fromBroker) {
         const exists = await BrokerDetail.exists({ _id: t.fromBroker });
-        if (!exists) return 'Invalid transfers.fromBroker: broker not found';
+        if (!exists) return "Invalid transfers.fromBroker: broker not found";
       }
       if (t?.toBroker) {
         const exists = await BrokerDetail.exists({ _id: t.toBroker });
-        if (!exists) return 'Invalid transfers.toBroker: broker not found';
+        if (!exists) return "Invalid transfers.toBroker: broker not found";
       }
     }
   }
@@ -134,7 +155,7 @@ export const createLead = async (req, res) => {
     }
     if (!payload.secondaryRegion && payload.secondaryRegionId !== undefined) {
       const val = payload.secondaryRegionId;
-      if (val === '' || val === null) {
+      if (val === "" || val === null) {
         payload.secondaryRegion = undefined;
       } else {
         payload.secondaryRegion = val;
@@ -145,22 +166,32 @@ export const createLead = async (req, res) => {
       payload.primaryRegion = payload.regionId;
     }
     if (!payload.primaryRegion) {
-      return errorResponse(res, 'primaryRegionId is required', 400);
+      return errorResponse(res, "primaryRegionId is required", 400);
     }
-    const Region = (await import('../models/Region.js')).default;
+    const Region = (await import("../models/Region.js")).default;
     const primaryExists = await Region.exists({ _id: payload.primaryRegion });
     if (!primaryExists) {
-      return errorResponse(res, 'Invalid primaryRegionId: region not found', 400);
+      return errorResponse(
+        res,
+        "Invalid primaryRegionId: region not found",
+        400
+      );
     }
     if (payload.secondaryRegion) {
-      const secondaryExists = await Region.exists({ _id: payload.secondaryRegion });
+      const secondaryExists = await Region.exists({
+        _id: payload.secondaryRegion,
+      });
       if (!secondaryExists) {
-        return errorResponse(res, 'Invalid secondaryRegionId: region not found', 400);
+        return errorResponse(
+          res,
+          "Invalid secondaryRegionId: region not found",
+          400
+        );
       }
     }
 
     // Defaults from logged-in broker
-    if (req.user && req.user.role === 'broker') {
+    if (req.user && req.user.role === "broker") {
       try {
         const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
         payload = applyBrokerDefaults(payload, brokerDetailId);
@@ -181,25 +212,50 @@ export const createLead = async (req, res) => {
 
     const lead = new Lead(payload);
     await lead.save();
-    
+
+    // ---------------- ZAPIER INTEGRATION (NEW) ----------------
+    sendToZapier(process.env.ZAPIER_LEAD_WEBHOOK, {
+      event: "lead_created",
+      leadId: lead._id.toString(),
+      name: lead.customerName,
+      phone: lead.customerPhone,
+      email: lead.customerEmail || "",
+      requirement: lead.requirement,
+      propertyType: lead.propertyType,
+      budget: lead.budget || null,
+      leadStatus: lead.status,
+      brokerId: lead.createdBy?.toString() || null,
+      primaryRegionId: lead.primaryRegion?.toString(),
+      secondaryRegionId: lead.secondaryRegion?.toString() || null,
+      source: "brokergully_website",
+      createdAt: lead.createdAt,
+    });
+    // ------------------------------------------------------------
+
     // Create notification for lead creation (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
     if (req.user?._id) {
-      createLeadNotification(req.user._id, 'created', lead, req.user)
-        .catch(notifError => {
+      createLeadNotification(req.user._id, "created", lead, req.user).catch(
+        (notifError) => {
           // Don't fail the request if notification fails
-          console.error('Error creating lead notification:', notifError);
-        });
+          console.error("Error creating lead notification:", notifError);
+        }
+      );
     }
-    
+
     // Back-compat alias for clients expecting `region`
     const leadCreated = lead.toObject ? lead.toObject() : lead;
     leadCreated.region = leadCreated.primaryRegion;
-    return successResponse(res, 'Lead created successfully', { lead: leadCreated }, 201);
+    return successResponse(
+      res,
+      "Lead created successfully",
+      { lead: leadCreated },
+      201
+    );
   } catch (error) {
     // Duplicate key error from Mongo for unique indexes
     if (error?.code === 11000 && error?.keyPattern) {
-      const fields = Object.keys(error.keyPattern).join(', ');
+      const fields = Object.keys(error.keyPattern).join(", ");
       return errorResponse(res, `Duplicate value for: ${fields}`, 409);
     }
     return serverError(res, error);
@@ -209,8 +265,8 @@ export const createLead = async (req, res) => {
 export const getLeads = async (req, res) => {
   try {
     const {
-      page ,
-      limit ,
+      page,
+      limit,
       search,
       status,
       propertyType,
@@ -230,11 +286,11 @@ export const getLeads = async (req, res) => {
       fromDate,
       toDate,
       verificationStatus,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
+      sortBy = "createdAt",
+      sortOrder = "desc",
       latitude,
       longitude,
-      radius // in kilometers, optional - if provided, filter by distance from primaryRegion centerCoordinates
+      radius, // in kilometers, optional - if provided, filter by distance from primaryRegion centerCoordinates
     } = req.query;
 
     const filter = {};
@@ -246,7 +302,7 @@ export const getLeads = async (req, res) => {
     if (primaryRegionId) {
       const idAsString = String(primaryRegionId);
       if (!mongoose.Types.ObjectId.isValid(idAsString)) {
-        return errorResponse(res, 'Invalid primaryRegionId format', 400);
+        return errorResponse(res, "Invalid primaryRegionId format", 400);
       }
       filter.primaryRegion = new mongoose.Types.ObjectId(idAsString);
     }
@@ -255,7 +311,7 @@ export const getLeads = async (req, res) => {
     if (secondaryRegionId) {
       const idAsString = String(secondaryRegionId);
       if (!mongoose.Types.ObjectId.isValid(idAsString)) {
-        return errorResponse(res, 'Invalid secondaryRegionId format', 400);
+        return errorResponse(res, "Invalid secondaryRegionId format", 400);
       }
       filter.secondaryRegion = new mongoose.Types.ObjectId(idAsString);
     }
@@ -264,42 +320,47 @@ export const getLeads = async (req, res) => {
     const resolvedRegionId = regionId || region;
     // Optional city filter (case-insensitive) against customer address fields if present
     if (city) {
-      const cityRegex = { $regex: `^${city}$`, $options: 'i' };
+      const cityRegex = { $regex: `^${city}$`, $options: "i" };
       // If your lead schema has a city field, filter directly; else apply to requirement/address text
       // Example applying to requirement text as fallback
-      filter.$and = (filter.$and || []);
-      filter.$and.push({ $or: [ { customerCity: cityRegex }, { requirement: { $regex: city, $options: 'i' } } ] });
+      filter.$and = filter.$and || [];
+      filter.$and.push({
+        $or: [
+          { customerCity: cityRegex },
+          { requirement: { $regex: city, $options: "i" } },
+        ],
+      });
     }
     // Only apply regionId filter if primaryRegionId and secondaryRegionId are not set
     if (resolvedRegionId && !primaryRegionId && !secondaryRegionId) {
       const idAsString = String(resolvedRegionId);
       if (!mongoose.Types.ObjectId.isValid(idAsString)) {
-        return errorResponse(res, 'Invalid regionId format', 400);
+        return errorResponse(res, "Invalid regionId format", 400);
       }
       const objectId = new mongoose.Types.ObjectId(idAsString);
-      filter.$or = [
-        { primaryRegion: objectId },
-        { secondaryRegion: objectId }
-      ];
+      filter.$or = [{ primaryRegion: objectId }, { secondaryRegion: objectId }];
     }
 
     // Filter by Region.city name -> resolve to Region IDs and filter primary/secondary
     if (regionCity) {
-      const Region = (await import('../models/Region.js')).default;
-      const regions = await Region.find({ city: { $regex: `^${regionCity}$`, $options: 'i' } }).select('_id');
-      const regionIds = regions.map(r => r._id);
+      const Region = (await import("../models/Region.js")).default;
+      const regions = await Region.find({
+        city: { $regex: `^${regionCity}$`, $options: "i" },
+      }).select("_id");
+      const regionIds = regions.map((r) => r._id);
       if (regionIds.length > 0) {
         filter.$or = [
           ...(filter.$or || []),
           { primaryRegion: { $in: regionIds } },
-          { secondaryRegion: { $in: regionIds } }
+          { secondaryRegion: { $in: regionIds } },
         ];
       } else {
         // ensure no match
-        filter.$and = [ ...(filter.$and || []), { _id: { $exists: false } } ];
+        filter.$and = [...(filter.$and || []), { _id: { $exists: false } }];
       }
     }
-    if (requirement) filter.requirement = { $regex: requirement, $options: 'i' };
+    if (requirement)
+      filter.requirement = { $regex: requirement, $options: "i" };
     if (budgetMin || budgetMax) {
       filter.budget = {};
       if (budgetMin) filter.budget.$gte = Number(budgetMin);
@@ -310,34 +371,50 @@ export const getLeads = async (req, res) => {
 
     if (search) {
       filter.$or = [
-        { customerName: { $regex: search, $options: 'i' } },
-        { customerEmail: { $regex: search, $options: 'i' } },
-        { customerPhone: { $regex: search, $options: 'i' } },
-        { requirement: { $regex: search, $options: 'i' } }
+        { customerName: { $regex: search, $options: "i" } },
+        { customerEmail: { $regex: search, $options: "i" } },
+        { customerPhone: { $regex: search, $options: "i" } },
+        { requirement: { $regex: search, $options: "i" } },
       ];
     }
 
     // Date range filter - handle preset ranges or custom dates
     if (dateRange) {
       const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const startOfToday = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        0,
+        0,
+        0,
+        0
+      );
+      const endOfToday = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        23,
+        59,
+        59,
+        999
+      );
 
       filter.createdAt = {};
-      
+
       switch (dateRange.toLowerCase()) {
-        case 'today':
+        case "today":
           filter.createdAt.$gte = startOfToday;
           filter.createdAt.$lte = endOfToday;
           break;
-        case 'last7days':
+        case "last7days":
           const last7Days = new Date(now);
           last7Days.setDate(now.getDate() - 7);
           last7Days.setHours(0, 0, 0, 0);
           filter.createdAt.$gte = last7Days;
           filter.createdAt.$lte = endOfToday;
           break;
-        case 'last30days':
+        case "last30days":
           const last30Days = new Date(now);
           last30Days.setDate(now.getDate() - 30);
           last30Days.setHours(0, 0, 0, 0);
@@ -368,11 +445,14 @@ export const getLeads = async (req, res) => {
     // Helper function to calculate distance in km using Haversine formula
     const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
       const R = 6371; // Earth's radius in km
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLng = (lng2 - lng1) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLng = ((lng2 - lng1) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) *
+          Math.cos((lat2 * Math.PI) / 180) *
+          Math.sin(dLng / 2) *
+          Math.sin(dLng / 2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     };
@@ -384,40 +464,58 @@ export const getLeads = async (req, res) => {
     if (latitude && longitude) {
       userLat = parseFloat(latitude);
       userLng = parseFloat(longitude);
-      
+
       // Validate coordinates
-      if (isNaN(userLat) || isNaN(userLng) || userLat < -90 || userLat > 90 || userLng < -180 || userLng > 180) {
-        return errorResponse(res, 'Invalid latitude or longitude values', 400);
+      if (
+        isNaN(userLat) ||
+        isNaN(userLng) ||
+        userLat < -90 ||
+        userLat > 90 ||
+        userLng < -180 ||
+        userLng > 180
+      ) {
+        return errorResponse(res, "Invalid latitude or longitude values", 400);
       }
-      
+
       // Only use radius if explicitly provided
       if (radius) {
         radiusKm = parseFloat(radius);
         if (isNaN(radiusKm) || radiusKm <= 0) {
-          return errorResponse(res, 'Invalid radius value. Must be a positive number', 400);
+          return errorResponse(
+            res,
+            "Invalid radius value. Must be a positive number",
+            400
+          );
         }
       }
     }
 
     // If logged-in broker, filter leads based on transfer shareType
-    if (req.user && req.user.role === 'broker') {
+    if (req.user && req.user.role === "broker") {
       try {
-        const brokerDetail = await findBrokerDetailWithRegionsByUserId(req.user._id);
+        const brokerDetail = await findBrokerDetailWithRegionsByUserId(
+          req.user._id
+        );
         if (brokerDetail) {
           const brokerDetailId = brokerDetail._id;
-          const brokerRegions = Array.isArray(brokerDetail.region) ? brokerDetail.region : [];
-          
+          const brokerRegions = Array.isArray(brokerDetail.region)
+            ? brokerDetail.region
+            : [];
+
           // Build transfer filter based on shareType
-          const transferFilter = buildTransferFilterForBroker(brokerDetailId, brokerRegions);
-          
+          const transferFilter = buildTransferFilterForBroker(
+            brokerDetailId,
+            brokerRegions
+          );
+
           // Also include leads created by this broker
           const brokerFilter = {
             $or: [
               { createdBy: brokerDetailId },
-              ...(transferFilter ? [transferFilter] : [])
-            ]
+              ...(transferFilter ? [transferFilter] : []),
+            ],
           };
-          
+
           // Merge with existing filter
           if (filter.$and) {
             filter.$and.push(brokerFilter);
@@ -426,113 +524,123 @@ export const getLeads = async (req, res) => {
           }
         }
       } catch (err) {
-        console.error('Error building broker filter:', err);
+        console.error("Error building broker filter:", err);
         // Non-fatal: continue without broker filter if lookup fails
       }
     }
 
     // Only apply pagination if page and limit are explicitly provided
-    const pageNum = (page && Number.isFinite(parseInt(page)) && parseInt(page) > 0) ? parseInt(page) : null;
-    const limitNum = (limit && Number.isFinite(parseInt(limit)) && parseInt(limit) > 0) ? parseInt(limit) : null;
-    const skip = (pageNum && limitNum) ? (pageNum - 1) * limitNum : 0;
-    
+    const pageNum =
+      page && Number.isFinite(parseInt(page)) && parseInt(page) > 0
+        ? parseInt(page)
+        : null;
+    const limitNum =
+      limit && Number.isFinite(parseInt(limit)) && parseInt(limit) > 0
+        ? parseInt(limit)
+        : null;
+    const skip = pageNum && limitNum ? (pageNum - 1) * limitNum : 0;
+
     // Determine sort: if coordinates provided and no explicit sortBy, we'll sort by distance later
     // Otherwise, use provided sortBy or default to createdAt
-    const shouldSortByDistance = (userLat !== null && userLng !== null && !sortBy);
-    const sort = shouldSortByDistance ? {} : { [sortBy || 'createdAt']: sortOrder === 'desc' ? -1 : 1 };
+    const shouldSortByDistance =
+      userLat !== null && userLng !== null && !sortBy;
+    const sort = shouldSortByDistance
+      ? {}
+      : { [sortBy || "createdAt"]: sortOrder === "desc" ? -1 : 1 };
 
     // If coordinates are provided, fetch all leads first (no pagination limit)
     // Otherwise, apply pagination at database level
     let items, total;
     let createdByIdsMap = new Map();
-    
+
     if (userLat !== null && userLng !== null) {
       // Fetch all leads for distance calculation
       const allLeads = await Lead.find(filter)
         .populate({
-          path: 'createdBy',
-          select: 'name email phone firmName brokerImage userId',
+          path: "createdBy",
+          select: "name email phone firmName brokerImage userId",
           populate: {
-            path: 'userId',
-            select: '_id name email phone role'
-          }
+            path: "userId",
+            select: "_id name email phone role",
+          },
         })
-        .populate({ path: 'primaryRegion' })
-        .populate({ path: 'secondaryRegion' })
+        .populate({ path: "primaryRegion" })
+        .populate({ path: "secondaryRegion" })
         .populate({
-          path: 'transfers.fromBroker',
-          select: 'name email phone firmName brokerImage region',
-          populate: { path: 'region' }
+          path: "transfers.fromBroker",
+          select: "name email phone firmName brokerImage region",
+          populate: { path: "region" },
         })
         .populate({
-          path: 'transfers.toBroker',
-          select: 'name email phone firmName brokerImage region',
-          populate: { path: 'region' }
+          path: "transfers.toBroker",
+          select: "name email phone firmName brokerImage region",
+          populate: { path: "region" },
         })
         .lean();
-      
+
       // Get original createdBy ObjectIds before processing
-      allLeads.forEach(doc => {
-        if (doc.createdBy && typeof doc.createdBy === 'object' && doc.createdBy._id) {
+      allLeads.forEach((doc) => {
+        if (
+          doc.createdBy &&
+          typeof doc.createdBy === "object" &&
+          doc.createdBy._id
+        ) {
           createdByIdsMap.set(doc._id.toString(), doc.createdBy._id);
         } else if (doc.createdBy) {
           createdByIdsMap.set(doc._id.toString(), doc.createdBy);
         }
       });
-      
+
       items = allLeads;
       total = allLeads.length; // Will be recalculated after distance filtering
     } else {
       // First get original createdBy ObjectIds before populate
-      let leadDocsQuery = Lead.find(filter)
-        .select('_id createdBy')
-        .sort(sort);
-      
+      let leadDocsQuery = Lead.find(filter).select("_id createdBy").sort(sort);
+
       if (pageNum && limitNum) {
         leadDocsQuery = leadDocsQuery.skip(skip).limit(limitNum);
       }
-      
+
       const leadDocs = await leadDocsQuery.lean();
-      
-      leadDocs.forEach(doc => {
+
+      leadDocs.forEach((doc) => {
         if (doc.createdBy) {
           createdByIdsMap.set(doc._id.toString(), doc.createdBy);
         }
       });
 
-      let itemsQuery = Lead.find(filter)
-        .sort(sort);
-      
+      let itemsQuery = Lead.find(filter).sort(sort);
+
       if (pageNum && limitNum) {
         itemsQuery = itemsQuery.skip(skip).limit(limitNum);
       }
-      
+
       const [fetchedItems, fetchedTotal] = await Promise.all([
         itemsQuery
           .populate({
-            path: 'createdBy',
-            select: 'name email phone firmName brokerImage userId',
+            path: "createdBy",
+            select: "name email phone firmName brokerImage userId",
             populate: {
-              path: 'userId',
-              select: '_id name email phone role'
-            }
+              path: "userId",
+              select: "_id name email phone role",
+            },
           })
-          .populate({ path: 'primaryRegion' })
-          .populate({ path: 'secondaryRegion' })
+          .populate({ path: "primaryRegion" })
+          .populate({ path: "secondaryRegion" })
           .populate({
-            path: 'transfers.fromBroker',
-            select: 'name email phone firmName brokerImage region',
-            populate: { path: 'region' }
+            path: "transfers.fromBroker",
+            select: "name email phone firmName brokerImage region",
+            populate: { path: "region" },
           })
           .populate({
-            path: 'transfers.toBroker',
-            select: 'name email phone firmName brokerImage region',
-            populate: { path: 'region' }
+            path: "transfers.toBroker",
+            select: "name email phone firmName brokerImage region",
+            populate: { path: "region" },
           })
           .lean(),
-        Lead.countDocuments(filter)
+        Lead.countDocuments(filter),
       ]);
-      
+
       items = fetchedItems;
       total = fetchedTotal;
     }
@@ -541,44 +649,47 @@ export const getLeads = async (req, res) => {
     const adminCreatedLeadIds = [];
     items.forEach((lead, index) => {
       if (!lead.createdBy && createdByIdsMap.has(lead._id.toString())) {
-        adminCreatedLeadIds.push({ index, createdById: createdByIdsMap.get(lead._id.toString()) });
+        adminCreatedLeadIds.push({
+          index,
+          createdById: createdByIdsMap.get(lead._id.toString()),
+        });
       }
     });
 
     // Fetch admin users for leads with null createdBy (only if they exist as admin users)
     if (adminCreatedLeadIds.length > 0) {
-      const adminUserIds = adminCreatedLeadIds.map(item => item.createdById);
+      const adminUserIds = adminCreatedLeadIds.map((item) => item.createdById);
       // Only fetch users that are confirmed to be admins
-      const adminUsers = await User.find({ 
-        _id: { $in: adminUserIds }, 
-        role: 'admin' 
+      const adminUsers = await User.find({
+        _id: { $in: adminUserIds },
+        role: "admin",
       })
-        .select('_id name email phone role')
+        .select("_id name email phone role")
         .lean();
-      
+
       const adminUsersMap = new Map();
-      adminUsers.forEach(admin => {
+      adminUsers.forEach((admin) => {
         adminUsersMap.set(admin._id.toString(), admin);
       });
 
       // Assign admin data to leads only if confirmed as admin user
       adminCreatedLeadIds.forEach(({ index, createdById }) => {
         const adminUser = adminUsersMap.get(createdById.toString());
-        if (adminUser && adminUser.role === 'admin') {
+        if (adminUser && adminUser.role === "admin") {
           items[index].createdBy = {
             _id: adminUser._id,
-            name: adminUser.name || 'Admin',
+            name: adminUser.name || "Admin",
             email: adminUser.email || null,
             phone: adminUser.phone || null,
             firmName: null,
             brokerImage: null,
             userId: {
               _id: adminUser._id,
-              name: adminUser.name || 'Admin',
+              name: adminUser.name || "Admin",
               email: adminUser.email || null,
               phone: adminUser.phone || null,
-              role: 'admin'
-            }
+              role: "admin",
+            },
           };
         }
       });
@@ -589,35 +700,47 @@ export const getLeads = async (req, res) => {
     if (userLat !== null && userLng !== null) {
       const leadsWithDistanceArray = [];
       const leadsWithoutCoordinates = [];
-      
-      items.forEach(lead => {
+
+      items.forEach((lead) => {
         // Calculate distance from primaryRegion's centerCoordinates
-        if (lead.primaryRegion && 
-            lead.primaryRegion.centerCoordinates && 
-            Array.isArray(lead.primaryRegion.centerCoordinates) && 
-            lead.primaryRegion.centerCoordinates.length === 2) {
+        if (
+          lead.primaryRegion &&
+          lead.primaryRegion.centerCoordinates &&
+          Array.isArray(lead.primaryRegion.centerCoordinates) &&
+          lead.primaryRegion.centerCoordinates.length === 2
+        ) {
           const [regionLat, regionLng] = lead.primaryRegion.centerCoordinates;
-          
+
           // Validate region coordinates
-          if (isNaN(regionLat) || isNaN(regionLng) || !isFinite(regionLat) || !isFinite(regionLng)) {
+          if (
+            isNaN(regionLat) ||
+            isNaN(regionLng) ||
+            !isFinite(regionLat) ||
+            !isFinite(regionLng)
+          ) {
             // Invalid coordinates - include without distance if no radius filter
             if (radiusKm === null) {
               leadsWithoutCoordinates.push(lead);
             }
             return;
           }
-          
-          const distance = calculateDistanceKm(userLat, userLng, regionLat, regionLng);
-          
+
+          const distance = calculateDistanceKm(
+            userLat,
+            userLng,
+            regionLat,
+            regionLng
+          );
+
           // Filter by radius if provided
           if (radiusKm !== null && distance > radiusKm) {
             return; // Filter out leads beyond radius
           }
-          
+
           // Add distance to lead
           leadsWithDistanceArray.push({
             ...lead,
-            distanceKm: Number(distance.toFixed(3))
+            distanceKm: Number(distance.toFixed(3)),
           });
         } else {
           // No primaryRegion or centerCoordinates - include without distance if no radius filter
@@ -627,7 +750,7 @@ export const getLeads = async (req, res) => {
           }
         }
       });
-      
+
       // Always sort by distance in ascending order (closest first) when coordinates are provided
       // This takes priority over any other sortBy parameter
       leadsWithDistanceArray.sort((a, b) => {
@@ -637,21 +760,24 @@ export const getLeads = async (req, res) => {
           return distA - distB; // Sort by distance first
         }
         // If distances are equal, apply secondary sort if sortBy is provided
-        if (sortBy && sortBy !== 'distanceKm') {
+        if (sortBy && sortBy !== "distanceKm") {
           const valA = a[sortBy];
           const valB = b[sortBy];
           if (valA !== undefined && valB !== undefined) {
-            const order = sortOrder === 'desc' ? -1 : 1;
+            const order = sortOrder === "desc" ? -1 : 1;
             if (valA < valB) return -1 * order;
             if (valA > valB) return 1 * order;
           }
         }
         return 0;
       });
-      
+
       // Combine: leads with distance first (sorted), then those without coordinates
-      leadsWithDistance = [...leadsWithDistanceArray, ...leadsWithoutCoordinates];
-      
+      leadsWithDistance = [
+        ...leadsWithDistanceArray,
+        ...leadsWithoutCoordinates,
+      ];
+
       // Apply pagination after distance filtering (only if pagination parameters are provided)
       if (pageNum && limitNum) {
         const startIndex = skip;
@@ -661,23 +787,32 @@ export const getLeads = async (req, res) => {
     }
 
     // Convert brokerImage paths to URLs
-    const itemsWithImageUrls = (leadsWithDistance || []).map(item => {
+    const itemsWithImageUrls = (leadsWithDistance || []).map((item) => {
       const lead = { ...item };
-      if (lead.createdBy && typeof lead.createdBy === 'object') {
-        lead.createdBy = { ...lead.createdBy, brokerImage: getFileUrl(req, lead.createdBy.brokerImage) };
+      if (lead.createdBy && typeof lead.createdBy === "object") {
+        lead.createdBy = {
+          ...lead.createdBy,
+          brokerImage: getFileUrl(req, lead.createdBy.brokerImage),
+        };
       }
       if (Array.isArray(lead.transfers)) {
-        lead.transfers = lead.transfers.map(t => {
+        lead.transfers = lead.transfers.map((t) => {
           const tr = { ...t };
-          if (tr.fromBroker && typeof tr.fromBroker === 'object') {
-            const fb = { ...tr.fromBroker, brokerImage: getFileUrl(req, tr.fromBroker.brokerImage) };
+          if (tr.fromBroker && typeof tr.fromBroker === "object") {
+            const fb = {
+              ...tr.fromBroker,
+              brokerImage: getFileUrl(req, tr.fromBroker.brokerImage),
+            };
             const regions = Array.isArray(fb.region) ? fb.region : [];
             fb.primaryRegion = regions.length > 0 ? regions[0] : null;
             fb.secondaryRegion = regions.length > 1 ? regions[1] : null;
             tr.fromBroker = fb;
           }
-          if (tr.toBroker && typeof tr.toBroker === 'object') {
-            const tb = { ...tr.toBroker, brokerImage: getFileUrl(req, tr.toBroker.brokerImage) };
+          if (tr.toBroker && typeof tr.toBroker === "object") {
+            const tb = {
+              ...tr.toBroker,
+              brokerImage: getFileUrl(req, tr.toBroker.brokerImage),
+            };
             const regions = Array.isArray(tb.region) ? tb.region : [];
             tb.primaryRegion = regions.length > 0 ? regions[0] : null;
             tb.secondaryRegion = regions.length > 1 ? regions[1] : null;
@@ -697,16 +832,28 @@ export const getLeads = async (req, res) => {
       if (radiusKm !== null) {
         // If radius is provided, count only leads with valid coordinates within radius
         // We need to recalculate this from the original items before pagination
-        const allLeadsWithDistance = items.filter(lead => {
-          if (lead.primaryRegion && 
-              lead.primaryRegion.centerCoordinates && 
-              Array.isArray(lead.primaryRegion.centerCoordinates) && 
-              lead.primaryRegion.centerCoordinates.length === 2) {
+        const allLeadsWithDistance = items.filter((lead) => {
+          if (
+            lead.primaryRegion &&
+            lead.primaryRegion.centerCoordinates &&
+            Array.isArray(lead.primaryRegion.centerCoordinates) &&
+            lead.primaryRegion.centerCoordinates.length === 2
+          ) {
             const [regionLat, regionLng] = lead.primaryRegion.centerCoordinates;
-            if (isNaN(regionLat) || isNaN(regionLng) || !isFinite(regionLat) || !isFinite(regionLng)) {
+            if (
+              isNaN(regionLat) ||
+              isNaN(regionLng) ||
+              !isFinite(regionLat) ||
+              !isFinite(regionLng)
+            ) {
               return false;
             }
-            const distance = calculateDistanceKm(userLat, userLng, regionLat, regionLng);
+            const distance = calculateDistanceKm(
+              userLat,
+              userLng,
+              regionLat,
+              regionLng
+            );
             return distance <= radiusKm;
           }
           return false;
@@ -720,14 +867,14 @@ export const getLeads = async (req, res) => {
 
     const totalPages = limitNum ? Math.ceil(totalCount / limitNum) : 1;
 
-    return successResponse(res, 'Leads retrieved successfully', {
+    return successResponse(res, "Leads retrieved successfully", {
       items: itemsWithImageUrls,
       page: pageNum || 1,
       limit: limitNum || totalCount,
       total: totalCount,
       totalPages,
-      hasNextPage: (pageNum && limitNum) ? pageNum < totalPages : false,
-      hasPrevPage: (pageNum && limitNum) ? pageNum > 1 : false
+      hasNextPage: pageNum && limitNum ? pageNum < totalPages : false,
+      hasPrevPage: pageNum && limitNum ? pageNum > 1 : false,
     });
   } catch (error) {
     return serverError(res, error);
@@ -737,81 +884,91 @@ export const getLeads = async (req, res) => {
 export const getLeadById = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // First get the original createdBy ObjectId before populate
-    const leadDoc = await Lead.findById(id).select('createdBy').lean();
-    if (!leadDoc) return errorResponse(res, 'Lead not found', 404);
-    
+    const leadDoc = await Lead.findById(id).select("createdBy").lean();
+    if (!leadDoc) return errorResponse(res, "Lead not found", 404);
+
     const lead = await Lead.findById(id)
       .populate({
-        path: 'createdBy',
-        select: 'name email phone firmName brokerImage userId',
+        path: "createdBy",
+        select: "name email phone firmName brokerImage userId",
         populate: {
-          path: 'userId',
-          select: '_id name email phone role'
-        }
+          path: "userId",
+          select: "_id name email phone role",
+        },
       })
-      .populate({ path: 'primaryRegion' })
-      .populate({ path: 'secondaryRegion' })
+      .populate({ path: "primaryRegion" })
+      .populate({ path: "secondaryRegion" })
       .populate({
-        path: 'transfers.fromBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.fromBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
       })
       .populate({
-        path: 'transfers.toBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.toBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
       })
       .lean();
 
-    if (!lead) return errorResponse(res, 'Lead not found', 404);
+    if (!lead) return errorResponse(res, "Lead not found", 404);
 
     // Handle admin-created leads: if createdBy is null (populate failed), check if it's an admin user
     if (!lead.createdBy && leadDoc.createdBy) {
       // Only populate from User table if the ID exists as an admin user
-      const adminUser = await User.findOne({ 
-        _id: leadDoc.createdBy, 
-        role: 'admin' 
-      }).select('_id name email phone role').lean();
-      
+      const adminUser = await User.findOne({
+        _id: leadDoc.createdBy,
+        role: "admin",
+      })
+        .select("_id name email phone role")
+        .lean();
+
       if (adminUser) {
         // For admin, structure matches broker format
         // Top-level fields represent admin user data (no separate BrokerDetail)
         lead.createdBy = {
           _id: adminUser._id,
-          name: adminUser.name || 'Admin',
+          name: adminUser.name || "Admin",
           email: adminUser.email || null,
           phone: adminUser.phone || null,
           firmName: null,
           brokerImage: null,
           userId: {
             _id: adminUser._id,
-            name: adminUser.name || 'Admin',
+            name: adminUser.name || "Admin",
             email: adminUser.email || null,
             phone: adminUser.phone || null,
-            role: 'admin'
-          }
+            role: "admin",
+          },
         };
       }
     }
 
     // Convert brokerImage paths to URLs in detail too
-    if (lead.createdBy && typeof lead.createdBy === 'object') {
+    if (lead.createdBy && typeof lead.createdBy === "object") {
       lead.createdBy.brokerImage = getFileUrl(req, lead.createdBy.brokerImage);
     }
     if (Array.isArray(lead.transfers)) {
-      lead.transfers = lead.transfers.map(t => {
+      lead.transfers = lead.transfers.map((t) => {
         const tr = { ...t };
-        if (tr.fromBroker && typeof tr.fromBroker === 'object') {
-          tr.fromBroker.brokerImage = getFileUrl(req, tr.fromBroker.brokerImage);
-          const regions = Array.isArray(tr.fromBroker.region) ? tr.fromBroker.region : [];
+        if (tr.fromBroker && typeof tr.fromBroker === "object") {
+          tr.fromBroker.brokerImage = getFileUrl(
+            req,
+            tr.fromBroker.brokerImage
+          );
+          const regions = Array.isArray(tr.fromBroker.region)
+            ? tr.fromBroker.region
+            : [];
           tr.fromBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
-          tr.fromBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+          tr.fromBroker.secondaryRegion =
+            regions.length > 1 ? regions[1] : null;
         }
-        if (tr.toBroker && typeof tr.toBroker === 'object') {
+        if (tr.toBroker && typeof tr.toBroker === "object") {
           tr.toBroker.brokerImage = getFileUrl(req, tr.toBroker.brokerImage);
-          const regions = Array.isArray(tr.toBroker.region) ? tr.toBroker.region : [];
+          const regions = Array.isArray(tr.toBroker.region)
+            ? tr.toBroker.region
+            : [];
           tr.toBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
           tr.toBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
         }
@@ -823,7 +980,7 @@ export const getLeadById = async (req, res) => {
     if (lead) {
       lead.region = lead.primaryRegion;
     }
-    return successResponse(res, 'Lead retrieved successfully', { lead });
+    return successResponse(res, "Lead retrieved successfully", { lead });
   } catch (error) {
     return serverError(res, error);
   }
@@ -850,8 +1007,8 @@ export const getTransferredLeads = async (req, res) => {
       toBroker,
       fromBroker,
       brokerId, // Additional filter for any broker involvement
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortBy = "createdAt",
+      sortOrder = "desc",
     } = req.query || {};
 
     // Build base filter with all lead fields (same as getLeads)
@@ -860,22 +1017,20 @@ export const getTransferredLeads = async (req, res) => {
     if (status) filter.status = status;
     if (propertyType) filter.propertyType = propertyType;
     if (createdBy) filter.createdBy = createdBy;
-    
+
     // Resolve region filter: match either primaryRegion or secondaryRegion
     const resolvedRegionId = regionId || region;
     if (resolvedRegionId) {
       const idAsString = String(resolvedRegionId);
       if (!mongoose.Types.ObjectId.isValid(idAsString)) {
-        return errorResponse(res, 'Invalid regionId format', 400);
+        return errorResponse(res, "Invalid regionId format", 400);
       }
       const objectId = new mongoose.Types.ObjectId(idAsString);
-      filter.$or = [
-        { primaryRegion: objectId },
-        { secondaryRegion: objectId }
-      ];
+      filter.$or = [{ primaryRegion: objectId }, { secondaryRegion: objectId }];
     }
-    
-    if (requirement) filter.requirement = { $regex: requirement, $options: 'i' };
+
+    if (requirement)
+      filter.requirement = { $regex: requirement, $options: "i" };
     if (budgetMin || budgetMax) {
       filter.budget = {};
       if (budgetMin) filter.budget.$gte = Number(budgetMin);
@@ -886,10 +1041,10 @@ export const getTransferredLeads = async (req, res) => {
 
     if (search) {
       filter.$or = [
-        { customerName: { $regex: search, $options: 'i' } },
-        { customerEmail: { $regex: search, $options: 'i' } },
-        { customerPhone: { $regex: search, $options: 'i' } },
-        { requirement: { $regex: search, $options: 'i' } }
+        { customerName: { $regex: search, $options: "i" } },
+        { customerEmail: { $regex: search, $options: "i" } },
+        { customerPhone: { $regex: search, $options: "i" } },
+        { requirement: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -902,213 +1057,241 @@ export const getTransferredLeads = async (req, res) => {
     // Add transfer-specific filters
     const matchTransfers = {};
     const transferConditions = [];
-    
+
     // Handle explicit query parameter filters
     if (toBroker) {
       if (!mongoose.Types.ObjectId.isValid(String(toBroker))) {
-        return errorResponse(res, 'Invalid toBroker format', 400);
+        return errorResponse(res, "Invalid toBroker format", 400);
       }
       const toBrokerId = new mongoose.Types.ObjectId(String(toBroker));
-      
+
       // Get broker details to check regions for shareType: "region" filtering
       try {
-        const brokerDetail = await BrokerDetail.findById(toBrokerId).select('region');
-        const brokerRegions = brokerDetail ? (Array.isArray(brokerDetail.region) ? brokerDetail.region : []) : [];
-        const brokerRegionIds = brokerRegions.map(r => 
-          mongoose.Types.ObjectId.isValid(r) ? new mongoose.Types.ObjectId(String(r)) : r
-        ).filter(Boolean);
-        
+        const brokerDetail = await BrokerDetail.findById(toBrokerId).select(
+          "region"
+        );
+        const brokerRegions = brokerDetail
+          ? Array.isArray(brokerDetail.region)
+            ? brokerDetail.region
+            : []
+          : [];
+        const brokerRegionIds = brokerRegions
+          .map((r) =>
+            mongoose.Types.ObjectId.isValid(r)
+              ? new mongoose.Types.ObjectId(String(r))
+              : r
+          )
+          .filter(Boolean);
+
         const toBrokerConditions = [
           // Individual transfers: broker is the toBroker
           {
-            'transfers': {
+            transfers: {
               $elemMatch: {
-                shareType: 'individual',
-                toBroker: toBrokerId
-              }
-            }
+                shareType: "individual",
+                toBroker: toBrokerId,
+              },
+            },
           },
           // All transfers: visible to all brokers
           {
-            'transfers': {
+            transfers: {
               $elemMatch: {
-                shareType: 'all'
-              }
-            }
-          }
+                shareType: "all",
+              },
+            },
+          },
         ];
-        
+
         // Region transfers: broker's region array contains transfer's region
         if (brokerRegionIds.length > 0) {
           toBrokerConditions.push({
-            'transfers': {
+            transfers: {
               $elemMatch: {
-                shareType: 'region',
-                region: { $in: brokerRegionIds }
-              }
-            }
+                shareType: "region",
+                region: { $in: brokerRegionIds },
+              },
+            },
           });
         }
-        
+
         transferConditions.push({
-          $or: toBrokerConditions
+          $or: toBrokerConditions,
         });
       } catch (err) {
         // Fallback to individual only if broker lookup fails
         transferConditions.push({
-          'transfers': {
+          transfers: {
             $elemMatch: {
-              shareType: 'individual',
-              toBroker: toBrokerId
-            }
-          }
+              shareType: "individual",
+              toBroker: toBrokerId,
+            },
+          },
         });
       }
     }
-    
+
     if (fromBroker) {
       if (!mongoose.Types.ObjectId.isValid(String(fromBroker))) {
-        return errorResponse(res, 'Invalid fromBroker format', 400);
+        return errorResponse(res, "Invalid fromBroker format", 400);
       }
       const fromBrokerId = new mongoose.Types.ObjectId(String(fromBroker));
       transferConditions.push({
-        'transfers.fromBroker': fromBrokerId
+        "transfers.fromBroker": fromBrokerId,
       });
     }
-    
+
     if (brokerId) {
       if (!mongoose.Types.ObjectId.isValid(String(brokerId))) {
-        return errorResponse(res, 'Invalid brokerId format', 400);
+        return errorResponse(res, "Invalid brokerId format", 400);
       }
       const brokerObjectId = new mongoose.Types.ObjectId(String(brokerId));
-      
+
       // Get broker details to check regions
       try {
-        const brokerDetail = await BrokerDetail.findById(brokerObjectId).select('region');
-        const brokerRegions = brokerDetail ? (Array.isArray(brokerDetail.region) ? brokerDetail.region : []) : [];
-        const brokerRegionIds = brokerRegions.map(r => 
-          mongoose.Types.ObjectId.isValid(r) ? new mongoose.Types.ObjectId(String(r)) : r
-        ).filter(Boolean);
-        
+        const brokerDetail = await BrokerDetail.findById(brokerObjectId).select(
+          "region"
+        );
+        const brokerRegions = brokerDetail
+          ? Array.isArray(brokerDetail.region)
+            ? brokerDetail.region
+            : []
+          : [];
+        const brokerRegionIds = brokerRegions
+          .map((r) =>
+            mongoose.Types.ObjectId.isValid(r)
+              ? new mongoose.Types.ObjectId(String(r))
+              : r
+          )
+          .filter(Boolean);
+
         const brokerIdConditions = [
-          { 'transfers.fromBroker': brokerObjectId },
+          { "transfers.fromBroker": brokerObjectId },
           {
-            'transfers': {
+            transfers: {
               $elemMatch: {
-                shareType: 'individual',
-                toBroker: brokerObjectId
-              }
-            }
+                shareType: "individual",
+                toBroker: brokerObjectId,
+              },
+            },
           },
           {
-            'transfers': {
+            transfers: {
               $elemMatch: {
-                shareType: 'all'
-              }
-            }
-          }
+                shareType: "all",
+              },
+            },
+          },
         ];
-        
+
         // Add region condition if broker has regions
         if (brokerRegionIds.length > 0) {
           brokerIdConditions.push({
-            'transfers': {
+            transfers: {
               $elemMatch: {
-                shareType: 'region',
-                region: { $in: brokerRegionIds }
-              }
-            }
+                shareType: "region",
+                region: { $in: brokerRegionIds },
+              },
+            },
           });
         }
-        
+
         transferConditions.push({
-          $or: brokerIdConditions
+          $or: brokerIdConditions,
         });
       } catch (err) {
         // Fallback to simple check if broker lookup fails
         transferConditions.push({
           $or: [
-            { 'transfers.fromBroker': brokerObjectId },
+            { "transfers.fromBroker": brokerObjectId },
             {
-              'transfers': {
+              transfers: {
                 $elemMatch: {
-                  shareType: 'individual',
-                  toBroker: brokerObjectId
-                }
-              }
-            }
-          ]
+                  shareType: "individual",
+                  toBroker: brokerObjectId,
+                },
+              },
+            },
+          ],
         });
       }
     }
 
     // If logged-in broker, filter to show leads based on transfer shareType
-    if (req.user && req.user.role === 'broker') {
+    if (req.user && req.user.role === "broker") {
       try {
-        const brokerDetail = await findBrokerDetailWithRegionsByUserId(req.user._id);
+        const brokerDetail = await findBrokerDetailWithRegionsByUserId(
+          req.user._id
+        );
         if (brokerDetail) {
           const brokerDetailId = brokerDetail._id;
-          const brokerRegions = Array.isArray(brokerDetail.region) ? brokerDetail.region : [];
-          
+          const brokerRegions = Array.isArray(brokerDetail.region)
+            ? brokerDetail.region
+            : [];
+
           // Build transfer filter based on shareType:
           // - individual: show if broker is the toBroker
           // - region: show if broker's region array contains transfer.region
           // - all: show to all brokers (any broker can see)
           const brokerTransferConditions = [];
-          
+
           // Individual transfers: broker is the toBroker
           brokerTransferConditions.push({
-            'transfers': {
+            transfers: {
               $elemMatch: {
-                shareType: 'individual',
-                toBroker: brokerDetailId
-              }
-            }
+                shareType: "individual",
+                toBroker: brokerDetailId,
+              },
+            },
           });
-          
+
           // Region transfers: broker's region array contains transfer.region
           if (brokerRegions.length > 0) {
-            const brokerRegionIds = brokerRegions.map(r => 
-              mongoose.Types.ObjectId.isValid(r) ? new mongoose.Types.ObjectId(String(r)) : r
-            ).filter(Boolean);
-            
+            const brokerRegionIds = brokerRegions
+              .map((r) =>
+                mongoose.Types.ObjectId.isValid(r)
+                  ? new mongoose.Types.ObjectId(String(r))
+                  : r
+              )
+              .filter(Boolean);
+
             if (brokerRegionIds.length > 0) {
               brokerTransferConditions.push({
-                'transfers': {
+                transfers: {
                   $elemMatch: {
-                    shareType: 'region',
-                    region: { $in: brokerRegionIds }
-                  }
-                }
+                    shareType: "region",
+                    region: { $in: brokerRegionIds },
+                  },
+                },
               });
             }
           }
-          
+
           // All transfers: show to all brokers (any broker can see)
           brokerTransferConditions.push({
-            'transfers': {
+            transfers: {
               $elemMatch: {
-                shareType: 'all'
-              }
-            }
+                shareType: "all",
+              },
+            },
           });
-          
+
           // Also include leads where broker is fromBroker
           brokerTransferConditions.push({
-            'transfers.fromBroker': brokerDetailId
+            "transfers.fromBroker": brokerDetailId,
           });
-          
+
           // Combine broker-specific conditions
           transferConditions.push({
-            $or: brokerTransferConditions
+            $or: brokerTransferConditions,
           });
         }
       } catch (err) {
-        console.error('Error building broker filter:', err);
+        console.error("Error building broker filter:", err);
         // Non-fatal: continue without broker filter if lookup fails
       }
     }
-    
+
     // Combine all transfer conditions
     if (transferConditions.length > 0) {
       if (transferConditions.length === 1) {
@@ -1123,36 +1306,41 @@ export const getTransferredLeads = async (req, res) => {
     const finalFilter = { ...filter, ...baseTransferFilter, ...matchTransfers };
 
     // Only apply pagination if page and limit are explicitly provided
-    const pageNum = (page && Number.isFinite(parseInt(page)) && parseInt(page) > 0) ? parseInt(page) : null;
-    const limitNum = (limit && Number.isFinite(parseInt(limit)) && parseInt(limit) > 0) ? parseInt(limit) : null;
-    const skip = (pageNum && limitNum) ? (pageNum - 1) * limitNum : 0;
-    
+    const pageNum =
+      page && Number.isFinite(parseInt(page)) && parseInt(page) > 0
+        ? parseInt(page)
+        : null;
+    const limitNum =
+      limit && Number.isFinite(parseInt(limit)) && parseInt(limit) > 0
+        ? parseInt(limit)
+        : null;
+    const skip = pageNum && limitNum ? (pageNum - 1) * limitNum : 0;
+
     // Determine sort: if coordinates provided and no explicit sortBy, sort by distance
     // Otherwise, use provided sortBy or default to createdAt
     // const shouldSortByDistance = (userLat !== null && userLng !== null && !sortBy);
     // const sort = shouldSortByDistance ? {} : { [sortBy || 'createdAt']: sortOrder === 'desc' ? -1 : 1 };
-    const sort = { [sortBy || 'createdAt']: sortOrder === 'desc' ? -1 : 1 };
+    const sort = { [sortBy || "createdAt"]: sortOrder === "desc" ? -1 : 1 };
     // First get original createdBy ObjectIds before populate
     let leadDocsQuery = Lead.find(finalFilter)
-      .select('_id createdBy')
+      .select("_id createdBy")
       .sort(sort);
-    
+
     if (pageNum && limitNum) {
       leadDocsQuery = leadDocsQuery.skip(skip).limit(limitNum);
     }
-    
+
     const leadDocs = await leadDocsQuery.lean();
-    
+
     const createdByIdsMap = new Map();
-    leadDocs.forEach(doc => {
+    leadDocs.forEach((doc) => {
       if (doc.createdBy) {
         createdByIdsMap.set(doc._id.toString(), doc.createdBy);
       }
     });
 
-    let itemsQuery = Lead.find(finalFilter)
-      .sort(sort);
-    
+    let itemsQuery = Lead.find(finalFilter).sort(sort);
+
     if (pageNum && limitNum) {
       itemsQuery = itemsQuery.skip(skip).limit(limitNum);
     }
@@ -1160,93 +1348,105 @@ export const getTransferredLeads = async (req, res) => {
     const [items, total] = await Promise.all([
       itemsQuery
         .populate({
-          path: 'createdBy',
-          select: 'name email phone firmName brokerImage userId',
+          path: "createdBy",
+          select: "name email phone firmName brokerImage userId",
           populate: {
-            path: 'userId',
-            select: '_id name email phone role'
-          }
+            path: "userId",
+            select: "_id name email phone role",
+          },
         })
-        .populate({ path: 'primaryRegion' })
-        .populate({ path: 'secondaryRegion' })
+        .populate({ path: "primaryRegion" })
+        .populate({ path: "secondaryRegion" })
         .populate({
-          path: 'transfers.fromBroker',
-          select: 'name email phone firmName brokerImage region',
-          populate: { path: 'region' }
+          path: "transfers.fromBroker",
+          select: "name email phone firmName brokerImage region",
+          populate: { path: "region" },
         })
         .populate({
-          path: 'transfers.toBroker',
-          select: 'name email phone firmName brokerImage region',
-          populate: { path: 'region' }
+          path: "transfers.toBroker",
+          select: "name email phone firmName brokerImage region",
+          populate: { path: "region" },
         })
         .lean(),
-      Lead.countDocuments(finalFilter)
+      Lead.countDocuments(finalFilter),
     ]);
 
     // Handle admin-created leads: find leads with null createdBy and populate from User
     const adminCreatedLeadIds = [];
     items.forEach((lead, index) => {
       if (!lead.createdBy && createdByIdsMap.has(lead._id.toString())) {
-        adminCreatedLeadIds.push({ index, createdById: createdByIdsMap.get(lead._id.toString()) });
+        adminCreatedLeadIds.push({
+          index,
+          createdById: createdByIdsMap.get(lead._id.toString()),
+        });
       }
     });
 
     // Fetch admin users for leads with null createdBy (only if they exist as admin users)
     if (adminCreatedLeadIds.length > 0) {
-      const adminUserIds = adminCreatedLeadIds.map(item => item.createdById);
+      const adminUserIds = adminCreatedLeadIds.map((item) => item.createdById);
       // Only fetch users that are confirmed to be admins
-      const adminUsers = await User.find({ 
-        _id: { $in: adminUserIds }, 
-        role: 'admin' 
+      const adminUsers = await User.find({
+        _id: { $in: adminUserIds },
+        role: "admin",
       })
-        .select('_id name email phone role')
+        .select("_id name email phone role")
         .lean();
-      
+
       const adminUsersMap = new Map();
-      adminUsers.forEach(admin => {
+      adminUsers.forEach((admin) => {
         adminUsersMap.set(admin._id.toString(), admin);
       });
 
       // Assign admin data to leads only if confirmed as admin user
       adminCreatedLeadIds.forEach(({ index, createdById }) => {
         const adminUser = adminUsersMap.get(createdById.toString());
-        if (adminUser && adminUser.role === 'admin') {
+        if (adminUser && adminUser.role === "admin") {
           items[index].createdBy = {
             _id: adminUser._id,
-            name: adminUser.name || 'Admin',
+            name: adminUser.name || "Admin",
             email: adminUser.email || null,
             phone: adminUser.phone || null,
             firmName: null,
             brokerImage: null,
             userId: {
               _id: adminUser._id,
-              name: adminUser.name || 'Admin',
+              name: adminUser.name || "Admin",
               email: adminUser.email || null,
               phone: adminUser.phone || null,
-              role: 'admin'
-            }
+              role: "admin",
+            },
           };
         }
       });
     }
 
-    const itemsWithImageUrls = (items || []).map(item => {
+    const itemsWithImageUrls = (items || []).map((item) => {
       const lead = { ...item };
-      if (lead.createdBy && typeof lead.createdBy === 'object') {
-        lead.createdBy = { ...lead.createdBy, brokerImage: getFileUrl(req, lead.createdBy.brokerImage) };
+      if (lead.createdBy && typeof lead.createdBy === "object") {
+        lead.createdBy = {
+          ...lead.createdBy,
+          brokerImage: getFileUrl(req, lead.createdBy.brokerImage),
+        };
       }
       if (Array.isArray(lead.transfers)) {
-        lead.transfers = lead.transfers.map(t => {
+        lead.transfers = lead.transfers.map((t) => {
           const tr = { ...t };
-          if (tr.fromBroker && typeof tr.fromBroker === 'object') {
-            const fb = { ...tr.fromBroker, brokerImage: getFileUrl(req, tr.fromBroker.brokerImage) };
+          if (tr.fromBroker && typeof tr.fromBroker === "object") {
+            const fb = {
+              ...tr.fromBroker,
+              brokerImage: getFileUrl(req, tr.fromBroker.brokerImage),
+            };
             const regions = Array.isArray(fb.region) ? fb.region : [];
             fb.primaryRegion = regions.length > 0 ? regions[0] : null;
             fb.secondaryRegion = regions.length > 1 ? regions[1] : null;
             tr.fromBroker = fb;
           }
-          if (tr.toBroker && typeof tr.toBroker === 'object') {
-            const tb = { ...tr.toBroker, brokerImage: getFileUrl(req, tr.toBroker.brokerImage) };
+          if (tr.toBroker && typeof tr.toBroker === "object") {
+            const tb = {
+              ...tr.toBroker,
+              brokerImage: getFileUrl(req, tr.toBroker.brokerImage),
+            };
             const regions = Array.isArray(tb.region) ? tb.region : [];
             tb.primaryRegion = regions.length > 0 ? regions[0] : null;
             tb.secondaryRegion = regions.length > 1 ? regions[1] : null;
@@ -1260,14 +1460,14 @@ export const getTransferredLeads = async (req, res) => {
 
     const totalPages = limitNum ? Math.ceil(total / limitNum) : 1;
 
-    return successResponse(res, 'Transferred leads retrieved successfully', {
+    return successResponse(res, "Transferred leads retrieved successfully", {
       items: itemsWithImageUrls,
       page: pageNum || 1,
       limit: limitNum || total,
       total,
       totalPages,
-      hasNextPage: (pageNum && limitNum) ? pageNum < totalPages : false,
-      hasPrevPage: (pageNum && limitNum) ? pageNum > 1 : false
+      hasNextPage: pageNum && limitNum ? pageNum < totalPages : false,
+      hasPrevPage: pageNum && limitNum ? pageNum > 1 : false,
     });
   } catch (error) {
     return serverError(res, error);
@@ -1297,19 +1497,26 @@ export const getLeadMetrics = async (req, res) => {
 
     // createdBy filter should ONLY apply if explicitly provided
     let createdByBrokerId = createdBy || null;
-    if (createdByBrokerId && !mongoose.Types.ObjectId.isValid(String(createdByBrokerId))) {
-      return errorResponse(res, 'Invalid createdBy format', 400);
+    if (
+      createdByBrokerId &&
+      !mongoose.Types.ObjectId.isValid(String(createdByBrokerId))
+    ) {
+      return errorResponse(res, "Invalid createdBy format", 400);
     }
 
     const matchBase = {};
     if (createdByBrokerId) {
-      matchBase.createdBy = new mongoose.Types.ObjectId(String(createdByBrokerId));
+      matchBase.createdBy = new mongoose.Types.ObjectId(
+        String(createdByBrokerId)
+      );
     }
 
     // Property filter for broker-scoped queries
     const propertyMatchBase = {};
     if (createdByBrokerId) {
-      propertyMatchBase.broker = new mongoose.Types.ObjectId(String(createdByBrokerId));
+      propertyMatchBase.broker = new mongoose.Types.ObjectId(
+        String(createdByBrokerId)
+      );
     }
 
     const startOfToday = new Date();
@@ -1325,9 +1532,11 @@ export const getLeadMetrics = async (req, res) => {
     const startOfCurrentPeriod = new Date(now);
     startOfCurrentPeriod.setDate(now.getDate() - 30);
     startOfCurrentPeriod.setHours(0, 0, 0, 0);
-    
+
     const endOfPreviousPeriod = new Date(startOfCurrentPeriod);
-    endOfPreviousPeriod.setMilliseconds(endOfPreviousPeriod.getMilliseconds() - 1);
+    endOfPreviousPeriod.setMilliseconds(
+      endOfPreviousPeriod.getMilliseconds() - 1
+    );
     const startOfPreviousPeriod = new Date(startOfCurrentPeriod);
     startOfPreviousPeriod.setDate(startOfPreviousPeriod.getDate() - 30);
     startOfPreviousPeriod.setHours(0, 0, 0, 0);
@@ -1335,14 +1544,14 @@ export const getLeadMetrics = async (req, res) => {
     // Resolve WHICH broker to use for transfer metrics (actor)
     // Priority: brokerId > createdBy > logged-in user
     let actorBrokerId = brokerId || null;
-    
+
     // If brokerId not provided, use createdBy if available
     if (!actorBrokerId && createdByBrokerId) {
       actorBrokerId = createdByBrokerId;
     }
-    
+
     // If still not set and user is logged in as broker, use their broker ID
-    if (!actorBrokerId && req.user && req.user.role === 'broker') {
+    if (!actorBrokerId && req.user && req.user.role === "broker") {
       try {
         const bd = await findBrokerDetailIdByUserId(req.user._id);
         if (bd) actorBrokerId = String(bd);
@@ -1350,21 +1559,26 @@ export const getLeadMetrics = async (req, res) => {
     }
 
     // If brokerId provided might be a User id, try mapping to BrokerDetail
-    if (actorBrokerId && !mongoose.Types.ObjectId.isValid(String(actorBrokerId))) {
-      return errorResponse(res, 'Invalid brokerId format', 400);
+    if (
+      actorBrokerId &&
+      !mongoose.Types.ObjectId.isValid(String(actorBrokerId))
+    ) {
+      return errorResponse(res, "Invalid brokerId format", 400);
     }
     // Validate/normalize actorBrokerId: if it doesn't exist as BrokerDetail _id, try by userId
     if (actorBrokerId) {
       const existsAsBD = await BrokerDetail.exists({ _id: actorBrokerId });
       if (!existsAsBD) {
-        const byUser = await BrokerDetail.findOne({ userId: actorBrokerId }).select('_id').lean();
+        const byUser = await BrokerDetail.findOne({ userId: actorBrokerId })
+          .select("_id")
+          .lean();
         if (byUser) actorBrokerId = String(byUser._id);
       }
     }
 
     // Build connections filter - participants are BrokerDetail IDs (based on chatController usage)
-    const connectionsMatchBase = createdByBrokerId 
-      ? { participants: new mongoose.Types.ObjectId(String(createdByBrokerId)) } 
+    const connectionsMatchBase = createdByBrokerId
+      ? { participants: new mongoose.Types.ObjectId(String(createdByBrokerId)) }
       : {};
 
     // Calculate all metrics including percentage changes
@@ -1382,54 +1596,61 @@ export const getLeadMetrics = async (req, res) => {
       totalPropertiesPreviousPeriod,
       totalConnections,
       totalConnectionsCurrentPeriod,
-      totalConnectionsPreviousPeriod
+      totalConnectionsPreviousPeriod,
     ] = await Promise.all([
       // Total leads (all time)
       Lead.countDocuments(matchBase),
       // Total leads - current period (last 30 days)
       Lead.countDocuments({
         ...matchBase,
-        createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod }
+        createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod },
       }),
       // Total leads - previous period (previous 30 days)
       Lead.countDocuments({
         ...matchBase,
-        createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod }
+        createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod },
       }),
       // New leads today
-      Lead.countDocuments({ ...matchBase, createdAt: { $gte: startOfToday, $lte: endOfToday } }),
+      Lead.countDocuments({
+        ...matchBase,
+        createdAt: { $gte: startOfToday, $lte: endOfToday },
+      }),
       // Converted leads
-      Lead.countDocuments({ ...matchBase, status: 'Closed' }),
+      Lead.countDocuments({ ...matchBase, status: "Closed" }),
       // Average deal size
       Lead.aggregate([
-        { $match: { ...matchBase, status: 'Closed', budget: { $ne: null } } },
-        { $group: { _id: null, avg: { $avg: '$budget' } } },
-        { $project: { _id: 0, avg: 1 } }
+        { $match: { ...matchBase, status: "Closed", budget: { $ne: null } } },
+        { $group: { _id: null, avg: { $avg: "$budget" } } },
+        { $project: { _id: 0, avg: 1 } },
       ]),
       // Transfers to me (only individual transfers)
       actorBrokerId
         ? Lead.aggregate([
-            { $unwind: '$transfers' },
-            { 
-              $match: { 
-                'transfers.toBroker': new mongoose.Types.ObjectId(String(actorBrokerId)),
-                'transfers.shareType': 'individual'
-              } 
+            { $unwind: "$transfers" },
+            {
+              $match: {
+                "transfers.toBroker": new mongoose.Types.ObjectId(
+                  String(actorBrokerId)
+                ),
+                "transfers.shareType": "individual",
+              },
             },
-            { $count: 'count' }
+            { $count: "count" },
           ])
         : Promise.resolve([]),
       // Transfers by me (only individual transfers)
       actorBrokerId
         ? Lead.aggregate([
-            { $unwind: '$transfers' },
-            { 
-              $match: { 
-                'transfers.fromBroker': new mongoose.Types.ObjectId(String(actorBrokerId)),
-                'transfers.shareType': 'individual'
-              } 
+            { $unwind: "$transfers" },
+            {
+              $match: {
+                "transfers.fromBroker": new mongoose.Types.ObjectId(
+                  String(actorBrokerId)
+                ),
+                "transfers.shareType": "individual",
+              },
             },
-            { $count: 'count' }
+            { $count: "count" },
           ])
         : Promise.resolve([]),
       // Total properties (all time)
@@ -1440,49 +1661,74 @@ export const getLeadMetrics = async (req, res) => {
       createdByBrokerId
         ? Property.countDocuments({
             ...propertyMatchBase,
-            createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod }
+            createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod },
           })
         : Property.countDocuments({
-            createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod }
+            createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod },
           }),
       // Total properties - previous period (previous 30 days)
       createdByBrokerId
         ? Property.countDocuments({
             ...propertyMatchBase,
-            createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod }
+            createdAt: {
+              $gte: startOfPreviousPeriod,
+              $lte: endOfPreviousPeriod,
+            },
           })
         : Property.countDocuments({
-            createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod }
+            createdAt: {
+              $gte: startOfPreviousPeriod,
+              $lte: endOfPreviousPeriod,
+            },
           }),
       // Total connections (chats) - all time (filtered by broker if createdBy provided)
       Chat.countDocuments(connectionsMatchBase),
       // Total connections - current period (last 30 days)
       Chat.countDocuments({
         ...connectionsMatchBase,
-        createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod }
+        createdAt: { $gte: startOfCurrentPeriod, $lte: endOfCurrentPeriod },
       }),
       // Total connections - previous period (previous 30 days)
       Chat.countDocuments({
         ...connectionsMatchBase,
-        createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod }
-      })
+        createdAt: { $gte: startOfPreviousPeriod, $lte: endOfPreviousPeriod },
+      }),
     ]);
 
     // Calculate percentage changes
-    const totalLeadsPercentage = calculatePercentageChange(totalLeadsCurrentPeriod, totalLeadsPreviousPeriod);
-    const totalPropertiesPercentage = calculatePercentageChange(totalPropertiesCurrentPeriod, totalPropertiesPreviousPeriod);
-    const totalConnectionsPercentage = calculatePercentageChange(totalConnectionsCurrentPeriod, totalConnectionsPreviousPeriod);
+    const totalLeadsPercentage = calculatePercentageChange(
+      totalLeadsCurrentPeriod,
+      totalLeadsPreviousPeriod
+    );
+    const totalPropertiesPercentage = calculatePercentageChange(
+      totalPropertiesCurrentPeriod,
+      totalPropertiesPreviousPeriod
+    );
+    const totalConnectionsPercentage = calculatePercentageChange(
+      totalConnectionsCurrentPeriod,
+      totalConnectionsPreviousPeriod
+    );
 
-    const averageDealSize = Array.isArray(avgDealAgg) && avgDealAgg.length > 0 ? avgDealAgg[0].avg : 0;
-    const transfersToMe = Array.isArray(transfersToMeAgg) && transfersToMeAgg.length > 0 ? transfersToMeAgg[0].count : 0;
-    const transfersByMe = Array.isArray(transfersByMeAgg) && transfersByMeAgg.length > 0 ? transfersByMeAgg[0].count : 0;
+    const averageDealSize =
+      Array.isArray(avgDealAgg) && avgDealAgg.length > 0
+        ? avgDealAgg[0].avg
+        : 0;
+    const transfersToMe =
+      Array.isArray(transfersToMeAgg) && transfersToMeAgg.length > 0
+        ? transfersToMeAgg[0].count
+        : 0;
+    const transfersByMe =
+      Array.isArray(transfersByMeAgg) && transfersByMeAgg.length > 0
+        ? transfersByMeAgg[0].count
+        : 0;
 
     // Calculate closed leads percentage
-    const closedLeadsPercentage = totalLeads > 0 
-      ? Math.round((convertedLeads / totalLeads) * 100 * 10) / 10 // Round to 1 decimal place
-      : 0;
+    const closedLeadsPercentage =
+      totalLeads > 0
+        ? Math.round((convertedLeads / totalLeads) * 100 * 10) / 10 // Round to 1 decimal place
+        : 0;
 
-    return successResponse(res, 'Lead metrics retrieved successfully', {
+    return successResponse(res, "Lead metrics retrieved successfully", {
       totalLeads,
       totalLeadsPercentageChange: totalLeadsPercentage,
       newLeadsToday,
@@ -1495,13 +1741,12 @@ export const getLeadMetrics = async (req, res) => {
       totalProperties,
       totalPropertiesPercentageChange: totalPropertiesPercentage,
       totalConnections,
-      totalConnectionsPercentageChange: totalConnectionsPercentage
+      totalConnectionsPercentageChange: totalConnectionsPercentage,
     });
   } catch (error) {
     return serverError(res, error);
   }
 };
-
 
 export const updateLead = async (req, res) => {
   try {
@@ -1511,27 +1756,41 @@ export const updateLead = async (req, res) => {
     // Check if lead exists
     const existingLead = await Lead.findById(id);
     if (!existingLead) {
-      return errorResponse(res, 'Lead not found', 404);
+      return errorResponse(res, "Lead not found", 404);
     }
 
     // API-level uniqueness checks (only when values are being updated)
-    if (payload.customerEmail && payload.customerEmail !== existingLead.customerEmail) {
-      const exists = await Lead.exists({ 
+    if (
+      payload.customerEmail &&
+      payload.customerEmail !== existingLead.customerEmail
+    ) {
+      const exists = await Lead.exists({
         customerEmail: payload.customerEmail,
-        _id: { $ne: id }
+        _id: { $ne: id },
       });
       if (exists) {
-        return errorResponse(res, 'Customer email already exists for another lead', 409);
+        return errorResponse(
+          res,
+          "Customer email already exists for another lead",
+          409
+        );
       }
     }
-    
-    if (payload.customerPhone && payload.customerPhone !== existingLead.customerPhone) {
-      const exists = await Lead.exists({ 
+
+    if (
+      payload.customerPhone &&
+      payload.customerPhone !== existingLead.customerPhone
+    ) {
+      const exists = await Lead.exists({
         customerPhone: payload.customerPhone,
-        _id: { $ne: id }
+        _id: { $ne: id },
       });
       if (exists) {
-        return errorResponse(res, 'Customer phone already exists for another lead', 409);
+        return errorResponse(
+          res,
+          "Customer phone already exists for another lead",
+          409
+        );
       }
     }
 
@@ -1542,7 +1801,7 @@ export const updateLead = async (req, res) => {
     }
     if (payload.secondaryRegionId !== undefined) {
       const val = payload.secondaryRegionId;
-      if (val === '' || val === null) {
+      if (val === "" || val === null) {
         payload.secondaryRegion = undefined;
       } else {
         payload.secondaryRegion = val;
@@ -1554,17 +1813,29 @@ export const updateLead = async (req, res) => {
       payload.primaryRegion = payload.regionId;
       delete payload.regionId;
     }
-    const RegionUpdate = (await import('../models/Region.js')).default;
+    const RegionUpdate = (await import("../models/Region.js")).default;
     if (payload.primaryRegion) {
-      const existsPrimary = await RegionUpdate.exists({ _id: payload.primaryRegion });
+      const existsPrimary = await RegionUpdate.exists({
+        _id: payload.primaryRegion,
+      });
       if (!existsPrimary) {
-        return errorResponse(res, 'Invalid primaryRegionId: region not found', 400);
+        return errorResponse(
+          res,
+          "Invalid primaryRegionId: region not found",
+          400
+        );
       }
     }
     if (payload.secondaryRegion) {
-      const existsSecondary = await RegionUpdate.exists({ _id: payload.secondaryRegion });
+      const existsSecondary = await RegionUpdate.exists({
+        _id: payload.secondaryRegion,
+      });
       if (!existsSecondary) {
-        return errorResponse(res, 'Invalid secondaryRegionId: region not found', 400);
+        return errorResponse(
+          res,
+          "Invalid secondaryRegionId: region not found",
+          400
+        );
       }
     }
 
@@ -1588,66 +1859,78 @@ export const updateLead = async (req, res) => {
       { new: true, runValidators: true }
     )
       .populate({
-        path: 'createdBy',
-        select: 'name email phone firmName userId',
+        path: "createdBy",
+        select: "name email phone firmName userId",
         populate: {
-          path: 'userId',
-          select: '_id name email phone role'
-        }
+          path: "userId",
+          select: "_id name email phone role",
+        },
       })
-      .populate({ path: 'primaryRegion' })
-      .populate({ path: 'secondaryRegion' })
+      .populate({ path: "primaryRegion" })
+      .populate({ path: "secondaryRegion" })
       .populate({
-        path: 'transfers.fromBroker',
-        select: 'name email phone firmName region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.fromBroker",
+        select: "name email phone firmName region",
+        populate: { path: "region", select: "name state city description" },
       })
       .populate({
-        path: 'transfers.toBroker',
-        select: 'name email phone firmName region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.toBroker",
+        select: "name email phone firmName region",
+        populate: { path: "region", select: "name state city description" },
       });
 
     // Handle admin-created leads: if createdBy is null (populate failed), check if it's an admin user
-    const leadUpdated = updatedLead && updatedLead.toObject ? updatedLead.toObject() : updatedLead;
+    const leadUpdated =
+      updatedLead && updatedLead.toObject
+        ? updatedLead.toObject()
+        : updatedLead;
     if (!leadUpdated.createdBy && originalCreatedBy) {
       // Only populate from User table if the ID exists as an admin user
-      const adminUser = await User.findOne({ 
-        _id: originalCreatedBy, 
-        role: 'admin' 
-      }).select('_id name email phone role').lean();
-      
+      const adminUser = await User.findOne({
+        _id: originalCreatedBy,
+        role: "admin",
+      })
+        .select("_id name email phone role")
+        .lean();
+
       if (adminUser) {
         leadUpdated.createdBy = {
           _id: adminUser._id,
-          name: adminUser.name || 'Admin',
+          name: adminUser.name || "Admin",
           email: adminUser.email || null,
           phone: adminUser.phone || null,
           firmName: null,
           userId: {
             _id: adminUser._id,
-            name: adminUser.name || 'Admin',
+            name: adminUser.name || "Admin",
             email: adminUser.email || null,
             phone: adminUser.phone || null,
-            role: 'admin'
-          }
+            role: "admin",
+          },
         };
       }
     }
     if (leadUpdated) {
       leadUpdated.region = leadUpdated.primaryRegion;
       if (Array.isArray(leadUpdated.transfers)) {
-        leadUpdated.transfers = leadUpdated.transfers.map(t => {
+        leadUpdated.transfers = leadUpdated.transfers.map((t) => {
           const tr = { ...t };
-          if (tr.fromBroker && typeof tr.fromBroker === 'object') {
-            const regions = Array.isArray(tr.fromBroker.region) ? tr.fromBroker.region : [];
-            tr.fromBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
-            tr.fromBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+          if (tr.fromBroker && typeof tr.fromBroker === "object") {
+            const regions = Array.isArray(tr.fromBroker.region)
+              ? tr.fromBroker.region
+              : [];
+            tr.fromBroker.primaryRegion =
+              regions.length > 0 ? regions[0] : null;
+            tr.fromBroker.secondaryRegion =
+              regions.length > 1 ? regions[1] : null;
           }
-          if (tr.toBroker && typeof tr.toBroker === 'object') {
-            const regions = Array.isArray(tr.toBroker.region) ? tr.toBroker.region : [];
+          if (tr.toBroker && typeof tr.toBroker === "object") {
+            const regions = Array.isArray(tr.toBroker.region)
+              ? tr.toBroker.region
+              : [];
             tr.toBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
-            tr.toBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+            tr.toBroker.secondaryRegion =
+              regions.length > 1 ? regions[1] : null;
           }
           return tr;
         });
@@ -1658,18 +1941,27 @@ export const updateLead = async (req, res) => {
     // Use userId from token (req.user._id)
     if (payload.status && payload.status !== existingLead.status) {
       if (req.user?._id) {
-        createLeadNotification(req.user._id, 'statusChanged', updatedLead, req.user)
-          .catch(notifError => {
-            console.error('Error creating status change notification:', notifError);
-          });
+        createLeadNotification(
+          req.user._id,
+          "statusChanged",
+          updatedLead,
+          req.user
+        ).catch((notifError) => {
+          console.error(
+            "Error creating status change notification:",
+            notifError
+          );
+        });
       }
     }
 
-    return successResponse(res, 'Lead updated successfully', { lead: leadUpdated });
+    return successResponse(res, "Lead updated successfully", {
+      lead: leadUpdated,
+    });
   } catch (error) {
     // Duplicate key error from Mongo for unique indexes
     if (error?.code === 11000 && error?.keyPattern) {
-      const fields = Object.keys(error.keyPattern).join(', ');
+      const fields = Object.keys(error.keyPattern).join(", ");
       return errorResponse(res, `Duplicate value for: ${fields}`, 409);
     }
     return serverError(res, error);
@@ -1683,7 +1975,7 @@ export const deleteLead = async (req, res) => {
     // Check if lead exists
     const lead = await Lead.findById(id);
     if (!lead) {
-      return errorResponse(res, 'Lead not found', 404);
+      return errorResponse(res, "Lead not found", 404);
     }
 
     // Delete the lead first
@@ -1692,14 +1984,18 @@ export const deleteLead = async (req, res) => {
     // Create notification after deleting (non-blocking - fire and forget)
     // Use userId from token (req.user._id)
     if (req.user?._id) {
-      createLeadNotification(req.user._id, 'deleted', lead, req.user)
-        .catch(notifError => {
-          console.error('Error creating lead deletion notification:', notifError);
-        });
+      createLeadNotification(req.user._id, "deleted", lead, req.user).catch(
+        (notifError) => {
+          console.error(
+            "Error creating lead deletion notification:",
+            notifError
+          );
+        }
+      );
     }
 
     // Send response immediately (notification creation runs in background)
-    return successResponse(res, 'Lead deleted successfully');
+    return successResponse(res, "Lead deleted successfully");
   } catch (error) {
     return serverError(res, error);
   }
@@ -1709,7 +2005,7 @@ export const transferAndNotes = async (req, res) => {
   try {
     const { id } = req.params;
     const body = req.body || {};
-    
+
     const toBrokers = Array.isArray(body.toBrokers) ? body.toBrokers : [];
     const transferObjects = Array.isArray(body.transfers) ? body.transfers : [];
     const fromBroker = body.fromBroker;
@@ -1717,83 +2013,112 @@ export const transferAndNotes = async (req, res) => {
 
     // Determine fromBroker (prefer provided; else default to logged-in broker)
     let fromId = fromBroker || null;
-    if (!fromId && req.user && req.user.role === 'broker') {
+    if (!fromId && req.user && req.user.role === "broker") {
       fromId = await findBrokerDetailIdByUserId(req.user._id);
     }
     if (!fromId) {
-      return errorResponse(res, 'fromBroker is required (or login as broker)', 400);
+      return errorResponse(
+        res,
+        "fromBroker is required (or login as broker)",
+        400
+      );
     }
 
     // Validate brokers
     const fromExists = await BrokerDetail.exists({ _id: fromId });
-    if (!fromExists) return errorResponse(res, 'Invalid fromBroker: broker not found', 400);
+    if (!fromExists)
+      return errorResponse(res, "Invalid fromBroker: broker not found", 400);
 
     // Support both formats: toBrokers array (backward compatible) or transfers array (new format)
     let transfersToAdd = [];
-    
+
     if (transferObjects && transferObjects.length > 0) {
       // New format: transfers array with shareType and region
-      const Region = (await import('../models/Region.js')).default;
+      const Region = (await import("../models/Region.js")).default;
       for (const transfer of transferObjects) {
-        const shareType = transfer.shareType || 'individual';
-        
+        const shareType = transfer.shareType || "individual";
+
         // Validate based on shareType
-        if (shareType === 'individual') {
+        if (shareType === "individual") {
           if (!transfer.toBroker) {
-            return errorResponse(res, 'toBroker is required when shareType is "individual"', 400);
+            return errorResponse(
+              res,
+              'toBroker is required when shareType is "individual"',
+              400
+            );
           }
           // Validate toBroker exists
-          const toExists = await BrokerDetail.exists({ _id: transfer.toBroker });
+          const toExists = await BrokerDetail.exists({
+            _id: transfer.toBroker,
+          });
           if (!toExists) {
-            return errorResponse(res, `Invalid toBroker: ${transfer.toBroker} not found`, 400);
+            return errorResponse(
+              res,
+              `Invalid toBroker: ${transfer.toBroker} not found`,
+              400
+            );
           }
           transfersToAdd.push({
-            shareType: 'individual',
+            shareType: "individual",
             toBroker: transfer.toBroker,
-            region: null
+            region: null,
           });
-        } else if (shareType === 'region') {
+        } else if (shareType === "region") {
           if (!transfer.region) {
-            return errorResponse(res, 'region is required when shareType is "region"', 400);
+            return errorResponse(
+              res,
+              'region is required when shareType is "region"',
+              400
+            );
           }
           // Validate region exists
           const regionExists = await Region.exists({ _id: transfer.region });
           if (!regionExists) {
-            return errorResponse(res, `Invalid region: ${transfer.region} not found`, 400);
+            return errorResponse(
+              res,
+              `Invalid region: ${transfer.region} not found`,
+              400
+            );
           }
           transfersToAdd.push({
-            shareType: 'region',
+            shareType: "region",
             toBroker: null,
-            region: transfer.region
+            region: transfer.region,
           });
-        } else if (shareType === 'all') {
+        } else if (shareType === "all") {
           // For 'all', save only shareType (no toBroker, no region)
           transfersToAdd.push({
-            shareType: 'all',
+            shareType: "all",
             toBroker: null,
-            region: null
+            region: null,
           });
         }
       }
     } else if (toBrokers && toBrokers.length > 0) {
       // Backward compatible format: toBrokers array (defaults to 'individual')
       const uniqueTo = [...new Set(toBrokers)];
-      const toExistsCount = await BrokerDetail.countDocuments({ _id: { $in: uniqueTo } });
+      const toExistsCount = await BrokerDetail.countDocuments({
+        _id: { $in: uniqueTo },
+      });
       if (toExistsCount !== uniqueTo.length) {
-        return errorResponse(res, 'One or more toBrokers not found', 400);
+        return errorResponse(res, "One or more toBrokers not found", 400);
       }
-      
-      transfersToAdd = uniqueTo.map(tb => ({
-        shareType: 'individual',
+
+      transfersToAdd = uniqueTo.map((tb) => ({
+        shareType: "individual",
         toBroker: tb,
-        region: null
+        region: null,
       }));
     } else {
-      return errorResponse(res, 'Either toBrokers or transfers array is required', 400);
+      return errorResponse(
+        res,
+        "Either toBrokers or transfers array is required",
+        400
+      );
     }
 
     const lead = await Lead.findById(id);
-    if (!lead) return errorResponse(res, 'Lead not found', 404);
+    if (!lead) return errorResponse(res, "Lead not found", 404);
 
     // Append transfers without duplicates
     // For individual: check fromBroker + toBroker
@@ -1801,46 +2126,50 @@ export const transferAndNotes = async (req, res) => {
     // For all: check fromBroker + shareType
     lead.transfers = Array.isArray(lead.transfers) ? lead.transfers : [];
     const existingTransfers = new Set();
-    
+
     // Build set of existing transfer keys
-    lead.transfers.forEach(t => {
-      if (t.shareType === 'individual' && t.toBroker) {
-        existingTransfers.add(`${String(t.fromBroker)}:individual:${String(t.toBroker)}`);
-      } else if (t.shareType === 'region' && t.region) {
-        existingTransfers.add(`${String(t.fromBroker)}:region:${String(t.region)}`);
-      } else if (t.shareType === 'all') {
+    lead.transfers.forEach((t) => {
+      if (t.shareType === "individual" && t.toBroker) {
+        existingTransfers.add(
+          `${String(t.fromBroker)}:individual:${String(t.toBroker)}`
+        );
+      } else if (t.shareType === "region" && t.region) {
+        existingTransfers.add(
+          `${String(t.fromBroker)}:region:${String(t.region)}`
+        );
+      } else if (t.shareType === "all") {
         existingTransfers.add(`${String(t.fromBroker)}:all`);
       }
     });
-    
+
     const uniqueToBrokerIds = [];
-    transfersToAdd.forEach(transfer => {
+    transfersToAdd.forEach((transfer) => {
       let key;
-      if (transfer.shareType === 'individual') {
+      if (transfer.shareType === "individual") {
         key = `${String(fromId)}:individual:${String(transfer.toBroker)}`;
-      } else if (transfer.shareType === 'region') {
+      } else if (transfer.shareType === "region") {
         key = `${String(fromId)}:region:${String(transfer.region)}`;
       } else {
         key = `${String(fromId)}:all`;
       }
-      
+
       if (!existingTransfers.has(key)) {
         const newTransfer = {
           fromBroker: fromId,
-          shareType: transfer.shareType
+          shareType: transfer.shareType,
         };
-        
+
         // Only add toBroker if shareType is 'individual'
-        if (transfer.shareType === 'individual' && transfer.toBroker) {
+        if (transfer.shareType === "individual" && transfer.toBroker) {
           newTransfer.toBroker = transfer.toBroker;
           uniqueToBrokerIds.push(transfer.toBroker);
         }
-        
+
         // Only add region if shareType is 'region'
-        if (transfer.shareType === 'region' && transfer.region) {
+        if (transfer.shareType === "region" && transfer.region) {
           newTransfer.region = transfer.region;
         }
-        
+
         lead.transfers.push(newTransfer);
         existingTransfers.add(key);
       }
@@ -1848,178 +2177,225 @@ export const transferAndNotes = async (req, res) => {
 
     // Update notes if provided
     if (notes !== undefined) {
-      lead.notes = notes ?? '';
+      lead.notes = notes ?? "";
     }
 
     await lead.save();
-    
+
     // Create notifications for transferred brokers
     try {
       // Get sender broker details for the notification message
-      const fromBroker = await BrokerDetail.findById(fromId).select('name userId').populate('userId', 'name');
+      const fromBroker = await BrokerDetail.findById(fromId)
+        .select("name userId")
+        .populate("userId", "name");
       if (!fromBroker) {
-        console.error('FromBroker not found for transfer notification');
-        throw new Error('FromBroker not found');
+        console.error("FromBroker not found for transfer notification");
+        throw new Error("FromBroker not found");
       }
-      
-      const senderName = fromBroker.name || 'Unknown Broker';
-      
+
+      const senderName = fromBroker.name || "Unknown Broker";
+
       // Collect all unique recipient broker IDs to avoid duplicates
       const recipientBrokerIds = new Set();
-      
+
       // Add individual transfer broker IDs
       if (uniqueToBrokerIds && uniqueToBrokerIds.length > 0) {
-        uniqueToBrokerIds.forEach(brokerId => {
+        uniqueToBrokerIds.forEach((brokerId) => {
           if (brokerId) {
             recipientBrokerIds.add(String(brokerId));
           }
         });
       }
-      
+
       // Handle region transfers - create ONE notification per unique region ID (non-blocking - fire and forget)
-      const regionTransfers = transfersToAdd.filter(t => t.shareType === 'region' && t.region);
+      const regionTransfers = transfersToAdd.filter(
+        (t) => t.shareType === "region" && t.region
+      );
       if (regionTransfers.length > 0) {
         // Get unique region IDs
-        const uniqueRegionIds = [...new Set(regionTransfers.map(t => String(t.region)).filter(Boolean))];
-        
+        const uniqueRegionIds = [
+          ...new Set(
+            regionTransfers.map((t) => String(t.region)).filter(Boolean)
+          ),
+        ];
+
         if (uniqueRegionIds.length > 0) {
-          console.log(`Creating ${uniqueRegionIds.length} region transfer notifications for regions:`, uniqueRegionIds);
-          
+          console.log(
+            `Creating ${uniqueRegionIds.length} region transfer notifications for regions:`,
+            uniqueRegionIds
+          );
+
           // Create one notification per unique region (non-blocking)
           Promise.all(
-            uniqueRegionIds.map(regionId =>
-              createRegionTransferNotification(regionId, fromId, lead, fromBroker)
+            uniqueRegionIds.map((regionId) =>
+              createRegionTransferNotification(
+                regionId,
+                fromId,
+                lead,
+                fromBroker
+              )
             )
           )
-          .then(regionNotifications => {
-            const successCount = regionNotifications.filter(r => r !== null).length;
-            console.log(`Successfully created ${successCount} out of ${uniqueRegionIds.length} region transfer notifications`);
-          })
-          .catch(error => {
-            console.error('Error creating region transfer notifications:', error);
-          });
-          
+            .then((regionNotifications) => {
+              const successCount = regionNotifications.filter(
+                (r) => r !== null
+              ).length;
+              console.log(
+                `Successfully created ${successCount} out of ${uniqueRegionIds.length} region transfer notifications`
+              );
+            })
+            .catch((error) => {
+              console.error(
+                "Error creating region transfer notifications:",
+                error
+              );
+            });
+
           // Don't create individual broker notifications for region transfers
           // We already created one notification per region
         }
       }
-      
+
       // Handle "all brokers" transfer - create ONE notification (non-blocking - fire and forget)
-      const hasAllTransfer = transfersToAdd.some(t => t.shareType === 'all');
+      const hasAllTransfer = transfersToAdd.some((t) => t.shareType === "all");
       if (hasAllTransfer) {
         createAllBrokersTransferNotification(fromId, lead, fromBroker)
-          .then(allNotification => {
+          .then((allNotification) => {
             if (allNotification) {
-              console.log('Successfully created single "all brokers" transfer notification');
+              console.log(
+                'Successfully created single "all brokers" transfer notification'
+              );
             }
           })
-          .catch(error => {
-            console.error('Error creating all brokers transfer notification:', error);
+          .catch((error) => {
+            console.error(
+              "Error creating all brokers transfer notification:",
+              error
+            );
           });
         // Don't create individual notifications for "all" - we already created one
       } else {
         // Convert Set to Array and create notifications for each unique recipient broker
         // (only for individual transfers) (non-blocking - fire and forget)
-        const uniqueRecipientIds = Array.from(recipientBrokerIds).filter(Boolean);
-        
+        const uniqueRecipientIds =
+          Array.from(recipientBrokerIds).filter(Boolean);
+
         if (uniqueRecipientIds.length > 0) {
-          console.log(`Creating ${uniqueRecipientIds.length} transfer notifications for brokers:`, uniqueRecipientIds);
-          
-          const notifications = uniqueRecipientIds.map(toBrokerId =>
+          console.log(
+            `Creating ${uniqueRecipientIds.length} transfer notifications for brokers:`,
+            uniqueRecipientIds
+          );
+
+          const notifications = uniqueRecipientIds.map((toBrokerId) =>
             createTransferNotification(toBrokerId, fromId, lead, fromBroker)
           );
-          
+
           // Send all notifications (non-blocking)
           Promise.all(notifications)
-            .then(results => {
-              const successCount = results.filter(r => r !== null).length;
-              console.log(`Successfully created ${successCount} out of ${notifications.length} transfer notifications`);
+            .then((results) => {
+              const successCount = results.filter((r) => r !== null).length;
+              console.log(
+                `Successfully created ${successCount} out of ${notifications.length} transfer notifications`
+              );
             })
-            .catch(error => {
-              console.error('Error creating transfer notifications:', error);
+            .catch((error) => {
+              console.error("Error creating transfer notifications:", error);
             });
         } else {
-          console.warn('No recipient brokers found for transfer notification');
+          console.warn("No recipient brokers found for transfer notification");
         }
       }
     } catch (notifError) {
       // Don't fail the request if notification fails
-      console.error('Error creating transfer notification:', notifError);
-      console.error('Stack:', notifError.stack);
+      console.error("Error creating transfer notification:", notifError);
+      console.error("Stack:", notifError.stack);
     }
-    
+
     // Get updated lead with populated data (same as getLeadById and other endpoints)
     const updatedLead = await Lead.findById(id)
       .populate({
-        path: 'createdBy',
-        select: 'name email phone firmName brokerImage userId',
+        path: "createdBy",
+        select: "name email phone firmName brokerImage userId",
         populate: {
-          path: 'userId',
-          select: '_id name email phone role'
-        }
+          path: "userId",
+          select: "_id name email phone role",
+        },
       })
-      .populate({ path: 'primaryRegion' })
-      .populate({ path: 'secondaryRegion' })
+      .populate({ path: "primaryRegion" })
+      .populate({ path: "secondaryRegion" })
       .populate({
-        path: 'transfers.fromBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
-      })
-      .populate({
-        path: 'transfers.toBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.fromBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
       })
       .populate({
-        path: 'transfers.region'
+        path: "transfers.toBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
+      })
+      .populate({
+        path: "transfers.region",
       })
       .lean();
 
     // Handle admin-created leads: if createdBy is null (populate failed), check if it's an admin user
     if (!updatedLead.createdBy) {
-      const leadDoc = await Lead.findById(id).select('createdBy').lean();
+      const leadDoc = await Lead.findById(id).select("createdBy").lean();
       if (leadDoc && leadDoc.createdBy) {
-        const adminUser = await User.findOne({ 
-          _id: leadDoc.createdBy, 
-          role: 'admin' 
-        }).select('_id name email phone role').lean();
-        
+        const adminUser = await User.findOne({
+          _id: leadDoc.createdBy,
+          role: "admin",
+        })
+          .select("_id name email phone role")
+          .lean();
+
         if (adminUser) {
           updatedLead.createdBy = {
             _id: adminUser._id,
-            name: adminUser.name || 'Admin',
+            name: adminUser.name || "Admin",
             email: adminUser.email || null,
             phone: adminUser.phone || null,
             firmName: null,
             brokerImage: null,
             userId: {
               _id: adminUser._id,
-              name: adminUser.name || 'Admin',
+              name: adminUser.name || "Admin",
               email: adminUser.email || null,
               phone: adminUser.phone || null,
-              role: 'admin'
-            }
+              role: "admin",
+            },
           };
         }
       }
     }
 
     // Convert brokerImage paths to URLs and format regions (same as getLeadById)
-    if (updatedLead.createdBy && typeof updatedLead.createdBy === 'object') {
-      updatedLead.createdBy.brokerImage = getFileUrl(req, updatedLead.createdBy.brokerImage);
+    if (updatedLead.createdBy && typeof updatedLead.createdBy === "object") {
+      updatedLead.createdBy.brokerImage = getFileUrl(
+        req,
+        updatedLead.createdBy.brokerImage
+      );
     }
     if (Array.isArray(updatedLead.transfers)) {
-      updatedLead.transfers = updatedLead.transfers.map(t => {
+      updatedLead.transfers = updatedLead.transfers.map((t) => {
         const tr = { ...t };
-        if (tr.fromBroker && typeof tr.fromBroker === 'object') {
-          tr.fromBroker.brokerImage = getFileUrl(req, tr.fromBroker.brokerImage);
-          const regions = Array.isArray(tr.fromBroker.region) ? tr.fromBroker.region : [];
+        if (tr.fromBroker && typeof tr.fromBroker === "object") {
+          tr.fromBroker.brokerImage = getFileUrl(
+            req,
+            tr.fromBroker.brokerImage
+          );
+          const regions = Array.isArray(tr.fromBroker.region)
+            ? tr.fromBroker.region
+            : [];
           tr.fromBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
-          tr.fromBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+          tr.fromBroker.secondaryRegion =
+            regions.length > 1 ? regions[1] : null;
         }
-        if (tr.toBroker && typeof tr.toBroker === 'object') {
+        if (tr.toBroker && typeof tr.toBroker === "object") {
           tr.toBroker.brokerImage = getFileUrl(req, tr.toBroker.brokerImage);
-          const regions = Array.isArray(tr.toBroker.region) ? tr.toBroker.region : [];
+          const regions = Array.isArray(tr.toBroker.region)
+            ? tr.toBroker.region
+            : [];
           tr.toBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
           tr.toBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
         }
@@ -2028,8 +2404,12 @@ export const transferAndNotes = async (req, res) => {
     }
     // Back-compat alias
     updatedLead.region = updatedLead.primaryRegion;
-    
-    return successResponse(res, 'Transfer(s) and notes processed successfully', { lead: updatedLead });
+
+    return successResponse(
+      res,
+      "Transfer(s) and notes processed successfully",
+      { lead: updatedLead }
+    );
   } catch (error) {
     return serverError(res, error);
   }
@@ -2042,31 +2422,37 @@ export const deleteLeadTransfer = async (req, res) => {
     const { fromBrokerId } = req.query || {};
 
     if (!mongoose.Types.ObjectId.isValid(String(id))) {
-      return errorResponse(res, 'Invalid lead id', 400);
+      return errorResponse(res, "Invalid lead id", 400);
     }
     if (!mongoose.Types.ObjectId.isValid(String(toBrokerId))) {
-      return errorResponse(res, 'Invalid toBrokerId', 400);
+      return errorResponse(res, "Invalid toBrokerId", 400);
     }
 
     // Resolve fromBroker: explicit param takes precedence, else logged-in broker
     let fromId = fromBrokerId || null;
-    if (!fromId && req.user && req.user.role === 'broker') {
+    if (!fromId && req.user && req.user.role === "broker") {
       try {
         fromId = await findBrokerDetailIdByUserId(req.user._id);
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
     }
     if (!fromId) {
-      return errorResponse(res, 'fromBrokerId is required (or login as broker)', 400);
+      return errorResponse(
+        res,
+        "fromBrokerId is required (or login as broker)",
+        400
+      );
     }
     if (!mongoose.Types.ObjectId.isValid(String(fromId))) {
-      return errorResponse(res, 'Invalid fromBrokerId', 400);
+      return errorResponse(res, "Invalid fromBrokerId", 400);
     }
 
     const lead = await Lead.findById(id);
-    if (!lead) return errorResponse(res, 'Lead not found', 404);
+    if (!lead) return errorResponse(res, "Lead not found", 404);
 
     const before = Array.isArray(lead.transfers) ? lead.transfers.length : 0;
-    lead.transfers = (lead.transfers || []).filter(t => {
+    lead.transfers = (lead.transfers || []).filter((t) => {
       const toMatch = String(t?.toBroker) === String(toBrokerId);
       const fromMatch = String(t?.fromBroker) === String(fromId);
       return !(toMatch && fromMatch);
@@ -2074,11 +2460,15 @@ export const deleteLeadTransfer = async (req, res) => {
     const after = lead.transfers.length;
 
     if (after === before) {
-      return errorResponse(res, 'Transfer entry not found for given from/to brokers', 404);
+      return errorResponse(
+        res,
+        "Transfer entry not found for given from/to brokers",
+        404
+      );
     }
 
     await lead.save();
-    return successResponse(res, 'Transfer deleted successfully', { lead });
+    return successResponse(res, "Transfer deleted successfully", { lead });
   } catch (error) {
     return serverError(res, error);
   }
@@ -2091,69 +2481,87 @@ export const updateRegionTransfer = async (req, res) => {
     const { region, fromBroker } = req.body;
 
     if (!region) {
-      return errorResponse(res, 'region is required', 400);
+      return errorResponse(res, "region is required", 400);
     }
 
     if (!mongoose.Types.ObjectId.isValid(String(id))) {
-      return errorResponse(res, 'Invalid lead id', 400);
+      return errorResponse(res, "Invalid lead id", 400);
     }
     if (!mongoose.Types.ObjectId.isValid(String(regionId))) {
-      return errorResponse(res, 'Invalid regionId parameter', 400);
+      return errorResponse(res, "Invalid regionId parameter", 400);
     }
     if (!mongoose.Types.ObjectId.isValid(String(region))) {
-      return errorResponse(res, 'Invalid region id', 400);
+      return errorResponse(res, "Invalid region id", 400);
     }
 
     // Resolve fromBroker: explicit param takes precedence, else logged-in broker
     let fromId = fromBroker || null;
-    if (!fromId && req.user && req.user.role === 'broker') {
+    if (!fromId && req.user && req.user.role === "broker") {
       try {
         fromId = await findBrokerDetailIdByUserId(req.user._id);
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
     }
     if (!fromId) {
-      return errorResponse(res, 'fromBroker is required (or login as broker)', 400);
+      return errorResponse(
+        res,
+        "fromBroker is required (or login as broker)",
+        400
+      );
     }
     if (!mongoose.Types.ObjectId.isValid(String(fromId))) {
-      return errorResponse(res, 'Invalid fromBroker id', 400);
+      return errorResponse(res, "Invalid fromBroker id", 400);
     }
 
     // Validate new region exists
-    const Region = (await import('../models/Region.js')).default;
+    const Region = (await import("../models/Region.js")).default;
     const regionExists = await Region.exists({ _id: region });
     if (!regionExists) {
-      return errorResponse(res, 'Invalid region: region not found', 400);
+      return errorResponse(res, "Invalid region: region not found", 400);
     }
 
     const lead = await Lead.findById(id);
     if (!lead) {
-      return errorResponse(res, 'Lead not found', 404);
+      return errorResponse(res, "Lead not found", 404);
     }
 
     // Find region transfer using same pattern as existing system: fromBroker + shareType + region
     lead.transfers = Array.isArray(lead.transfers) ? lead.transfers : [];
-    const transferIndex = lead.transfers.findIndex(t => {
-      return t.shareType === 'region' && 
-             t.region &&
-             String(t.fromBroker) === String(fromId) && 
-             String(t.region) === String(regionId);
+    const transferIndex = lead.transfers.findIndex((t) => {
+      return (
+        t.shareType === "region" &&
+        t.region &&
+        String(t.fromBroker) === String(fromId) &&
+        String(t.region) === String(regionId)
+      );
     });
 
     if (transferIndex === -1) {
-      return errorResponse(res, 'Region transfer not found for given fromBroker and region', 404);
+      return errorResponse(
+        res,
+        "Region transfer not found for given fromBroker and region",
+        404
+      );
     }
 
     // Check if new region transfer already exists (different from current one)
     if (String(regionId) !== String(region)) {
-      const existingTransfer = lead.transfers.find(t => {
-        return t.shareType === 'region' && 
-               t.region &&
-               String(t.fromBroker) === String(fromId) && 
-               String(t.region) === String(region);
+      const existingTransfer = lead.transfers.find((t) => {
+        return (
+          t.shareType === "region" &&
+          t.region &&
+          String(t.fromBroker) === String(fromId) &&
+          String(t.region) === String(region)
+        );
       });
 
       if (existingTransfer) {
-        return errorResponse(res, 'Region transfer already exists for this new region', 409);
+        return errorResponse(
+          res,
+          "Region transfer already exists for this new region",
+          409
+        );
       }
     }
 
@@ -2166,31 +2574,33 @@ export const updateRegionTransfer = async (req, res) => {
     // Get updated lead with populated data (same as getLeadById)
     const updatedLead = await Lead.findById(id)
       .populate({
-        path: 'createdBy',
-        select: 'name email phone firmName brokerImage userId',
+        path: "createdBy",
+        select: "name email phone firmName brokerImage userId",
         populate: {
-          path: 'userId',
-          select: '_id name email phone role'
-        }
+          path: "userId",
+          select: "_id name email phone role",
+        },
       })
-      .populate({ path: 'primaryRegion' })
-      .populate({ path: 'secondaryRegion' })
+      .populate({ path: "primaryRegion" })
+      .populate({ path: "secondaryRegion" })
       .populate({
-        path: 'transfers.fromBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
-      })
-      .populate({
-        path: 'transfers.toBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.fromBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
       })
       .populate({
-        path: 'transfers.region'
+        path: "transfers.toBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
+      })
+      .populate({
+        path: "transfers.region",
       })
       .lean();
 
-    return successResponse(res, 'Region transfer updated successfully', { lead: updatedLead });
+    return successResponse(res, "Region transfer updated successfully", {
+      lead: updatedLead,
+    });
   } catch (error) {
     return serverError(res, error);
   }
@@ -2203,36 +2613,42 @@ export const deleteRegionTransfer = async (req, res) => {
     const { fromBroker } = req.query || {};
 
     if (!mongoose.Types.ObjectId.isValid(String(id))) {
-      return errorResponse(res, 'Invalid lead id', 400);
+      return errorResponse(res, "Invalid lead id", 400);
     }
     if (!mongoose.Types.ObjectId.isValid(String(regionId))) {
-      return errorResponse(res, 'Invalid regionId parameter', 400);
+      return errorResponse(res, "Invalid regionId parameter", 400);
     }
 
     // Resolve fromBroker: explicit param takes precedence, else logged-in broker (same as deleteLeadTransfer)
     let fromId = fromBroker || null;
-    if (!fromId && req.user && req.user.role === 'broker') {
+    if (!fromId && req.user && req.user.role === "broker") {
       try {
         fromId = await findBrokerDetailIdByUserId(req.user._id);
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
     }
     if (!fromId) {
-      return errorResponse(res, 'fromBroker is required (or login as broker)', 400);
+      return errorResponse(
+        res,
+        "fromBroker is required (or login as broker)",
+        400
+      );
     }
     if (!mongoose.Types.ObjectId.isValid(String(fromId))) {
-      return errorResponse(res, 'Invalid fromBroker id', 400);
+      return errorResponse(res, "Invalid fromBroker id", 400);
     }
 
     const lead = await Lead.findById(id);
     if (!lead) {
-      return errorResponse(res, 'Lead not found', 404);
+      return errorResponse(res, "Lead not found", 404);
     }
 
     // Delete using same pattern as existing system: fromBroker + shareType + region
     const before = Array.isArray(lead.transfers) ? lead.transfers.length : 0;
-    lead.transfers = (lead.transfers || []).filter(t => {
+    lead.transfers = (lead.transfers || []).filter((t) => {
       // Match region transfer: shareType='region' AND fromBroker matches AND region matches
-      const isRegionTransfer = t.shareType === 'region' && t.region;
+      const isRegionTransfer = t.shareType === "region" && t.region;
       const regionMatch = String(t.region) === String(regionId);
       const fromMatch = String(t.fromBroker) === String(fromId);
       return !(isRegionTransfer && regionMatch && fromMatch);
@@ -2240,7 +2656,11 @@ export const deleteRegionTransfer = async (req, res) => {
     const after = lead.transfers.length;
 
     if (after === before) {
-      return errorResponse(res, 'Region transfer not found for given fromBroker and region', 404);
+      return errorResponse(
+        res,
+        "Region transfer not found for given fromBroker and region",
+        404
+      );
     }
 
     await lead.save();
@@ -2248,31 +2668,33 @@ export const deleteRegionTransfer = async (req, res) => {
     // Get updated lead with populated data (same as getLeadById)
     const updatedLead = await Lead.findById(id)
       .populate({
-        path: 'createdBy',
-        select: 'name email phone firmName brokerImage userId',
+        path: "createdBy",
+        select: "name email phone firmName brokerImage userId",
         populate: {
-          path: 'userId',
-          select: '_id name email phone role'
-        }
+          path: "userId",
+          select: "_id name email phone role",
+        },
       })
-      .populate({ path: 'primaryRegion' })
-      .populate({ path: 'secondaryRegion' })
+      .populate({ path: "primaryRegion" })
+      .populate({ path: "secondaryRegion" })
       .populate({
-        path: 'transfers.fromBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
-      })
-      .populate({
-        path: 'transfers.toBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.fromBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
       })
       .populate({
-        path: 'transfers.region'
+        path: "transfers.toBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
+      })
+      .populate({
+        path: "transfers.region",
       })
       .lean();
 
-    return successResponse(res, 'Region transfer deleted successfully', { lead: updatedLead });
+    return successResponse(res, "Region transfer deleted successfully", {
+      lead: updatedLead,
+    });
   } catch (error) {
     return serverError(res, error);
   }
@@ -2285,20 +2707,27 @@ export const updateLeadVerification = async (req, res) => {
     const { verificationStatus } = req.body;
 
     // Check admin access
-    if (!req.user || req.user.role !== 'admin') {
-      return errorResponse(res, 'Admin access required', 403);
+    if (!req.user || req.user.role !== "admin") {
+      return errorResponse(res, "Admin access required", 403);
     }
 
     // Validate verificationStatus
-    if (!verificationStatus || !['Verified', 'Unverified'].includes(verificationStatus)) {
-      return errorResponse(res, 'Invalid verificationStatus. Must be "Verified" or "Unverified"', 400);
+    if (
+      !verificationStatus ||
+      !["Verified", "Unverified"].includes(verificationStatus)
+    ) {
+      return errorResponse(
+        res,
+        'Invalid verificationStatus. Must be "Verified" or "Unverified"',
+        400
+      );
     }
 
     // Find lead
     const lead = await Lead.findById(id);
-    
+
     if (!lead) {
-      return errorResponse(res, 'Lead not found', 404);
+      return errorResponse(res, "Lead not found", 404);
     }
 
     // Get original createdBy ObjectId before update
@@ -2311,70 +2740,83 @@ export const updateLeadVerification = async (req, res) => {
     // Get updated lead with populated data
     const updatedLead = await Lead.findById(id)
       .populate({
-        path: 'createdBy',
-        select: 'name email phone firmName brokerImage userId',
+        path: "createdBy",
+        select: "name email phone firmName brokerImage userId",
         populate: {
-          path: 'userId',
-          select: '_id name email phone role'
-        }
+          path: "userId",
+          select: "_id name email phone role",
+        },
       })
-      .populate({ path: 'primaryRegion' })
-      .populate({ path: 'secondaryRegion' })
+      .populate({ path: "primaryRegion" })
+      .populate({ path: "secondaryRegion" })
       .populate({
-        path: 'transfers.fromBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.fromBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
       })
       .populate({
-        path: 'transfers.toBroker',
-        select: 'name email phone firmName brokerImage region',
-        populate: { path: 'region', select: 'name state city description' }
+        path: "transfers.toBroker",
+        select: "name email phone firmName brokerImage region",
+        populate: { path: "region", select: "name state city description" },
       })
       .lean();
 
     // Handle admin-created leads: if createdBy is null (populate failed), check if it's an admin user
     if (!updatedLead.createdBy && originalCreatedBy) {
       // Only populate from User table if the ID exists as an admin user
-      const adminUser = await User.findOne({ 
-        _id: originalCreatedBy, 
-        role: 'admin' 
-      }).select('_id name email phone role').lean();
-      
+      const adminUser = await User.findOne({
+        _id: originalCreatedBy,
+        role: "admin",
+      })
+        .select("_id name email phone role")
+        .lean();
+
       if (adminUser) {
         updatedLead.createdBy = {
           _id: adminUser._id,
-          name: adminUser.name || 'Admin',
+          name: adminUser.name || "Admin",
           email: adminUser.email || null,
           phone: adminUser.phone || null,
           firmName: null,
           brokerImage: null,
           userId: {
             _id: adminUser._id,
-            name: adminUser.name || 'Admin',
+            name: adminUser.name || "Admin",
             email: adminUser.email || null,
             phone: adminUser.phone || null,
-            role: 'admin'
-          }
+            role: "admin",
+          },
         };
       }
     }
 
     // Convert brokerImage paths to URLs
-    if (updatedLead.createdBy && typeof updatedLead.createdBy === 'object') {
-      updatedLead.createdBy.brokerImage = getFileUrl(req, updatedLead.createdBy.brokerImage);
+    if (updatedLead.createdBy && typeof updatedLead.createdBy === "object") {
+      updatedLead.createdBy.brokerImage = getFileUrl(
+        req,
+        updatedLead.createdBy.brokerImage
+      );
     }
     if (Array.isArray(updatedLead.transfers)) {
-      updatedLead.transfers = updatedLead.transfers.map(t => {
+      updatedLead.transfers = updatedLead.transfers.map((t) => {
         const tr = { ...t };
-        if (tr.fromBroker && typeof tr.fromBroker === 'object') {
-          tr.fromBroker.brokerImage = getFileUrl(req, tr.fromBroker.brokerImage);
-          const regions = Array.isArray(tr.fromBroker.region) ? tr.fromBroker.region : [];
+        if (tr.fromBroker && typeof tr.fromBroker === "object") {
+          tr.fromBroker.brokerImage = getFileUrl(
+            req,
+            tr.fromBroker.brokerImage
+          );
+          const regions = Array.isArray(tr.fromBroker.region)
+            ? tr.fromBroker.region
+            : [];
           tr.fromBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
-          tr.fromBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
+          tr.fromBroker.secondaryRegion =
+            regions.length > 1 ? regions[1] : null;
         }
-        if (tr.toBroker && typeof tr.toBroker === 'object') {
+        if (tr.toBroker && typeof tr.toBroker === "object") {
           tr.toBroker.brokerImage = getFileUrl(req, tr.toBroker.brokerImage);
-          const regions = Array.isArray(tr.toBroker.region) ? tr.toBroker.region : [];
+          const regions = Array.isArray(tr.toBroker.region)
+            ? tr.toBroker.region
+            : [];
           tr.toBroker.primaryRegion = regions.length > 0 ? regions[0] : null;
           tr.toBroker.secondaryRegion = regions.length > 1 ? regions[1] : null;
         }
@@ -2383,10 +2825,13 @@ export const updateLeadVerification = async (req, res) => {
     }
     updatedLead.region = updatedLead.primaryRegion;
 
-    return successResponse(res, `Lead verification status updated to ${verificationStatus}`, { 
-      lead: updatedLead 
-    });
-
+    return successResponse(
+      res,
+      `Lead verification status updated to ${verificationStatus}`,
+      {
+        lead: updatedLead,
+      }
+    );
   } catch (error) {
     return serverError(res, error);
   }
@@ -2396,7 +2841,7 @@ export const getFullLeadsByBrokerId = async (req, res) => {
   try {
     const { brokerId } = req.params;
     const leads = await Lead.find({ createdBy: brokerId });
-    return successResponse(res, 'Leads retrieved successfully', { leads });
+    return successResponse(res, "Leads retrieved successfully", { leads });
   } catch (error) {
     return serverError(res, error);
   }
@@ -2409,7 +2854,7 @@ export const getLeadsByMonth = async (req, res) => {
 
     // Require authentication - broker must be logged in
     if (!req.user) {
-      return errorResponse(res, 'Authentication required', 401);
+      return errorResponse(res, "Authentication required", 401);
     }
 
     // Build base filter
@@ -2417,28 +2862,30 @@ export const getLeadsByMonth = async (req, res) => {
 
     // Get broker from token - only brokers can access this endpoint
     let effectiveBrokerId = null;
-    if (req.user.role === 'broker') {
+    if (req.user.role === "broker") {
       try {
         const brokerDetailId = await findBrokerDetailIdByUserId(req.user._id);
         if (!brokerDetailId) {
-          return errorResponse(res, 'Broker profile not found', 404);
+          return errorResponse(res, "Broker profile not found", 404);
         }
         effectiveBrokerId = String(brokerDetailId);
       } catch (err) {
-        console.error('Error finding broker detail:', err);
-        return errorResponse(res, 'Error finding broker profile', 500);
+        console.error("Error finding broker detail:", err);
+        return errorResponse(res, "Error finding broker profile", 500);
       }
     } else {
-      return errorResponse(res, 'Only brokers can access this endpoint', 403);
+      return errorResponse(res, "Only brokers can access this endpoint", 403);
     }
 
     // Apply broker filter - only leads created by this broker (not transferred leads)
     if (effectiveBrokerId) {
       if (!mongoose.Types.ObjectId.isValid(String(effectiveBrokerId))) {
-        return errorResponse(res, 'Invalid brokerId format', 400);
+        return errorResponse(res, "Invalid brokerId format", 400);
       }
-      
-      const brokerObjectId = new mongoose.Types.ObjectId(String(effectiveBrokerId));
+
+      const brokerObjectId = new mongoose.Types.ObjectId(
+        String(effectiveBrokerId)
+      );
       // Only filter by createdBy - exclude transferred leads
       matchFilter.createdBy = brokerObjectId;
     }
@@ -2448,7 +2895,7 @@ export const getLeadsByMonth = async (req, res) => {
     if (year) {
       targetYear = parseInt(year, 10);
       if (isNaN(targetYear) || targetYear < 2000 || targetYear > 2100) {
-        return errorResponse(res, 'Invalid year format', 400);
+        return errorResponse(res, "Invalid year format", 400);
       }
     } else {
       // Default to current year
@@ -2462,7 +2909,7 @@ export const getLeadsByMonth = async (req, res) => {
     // Apply date filter to match query
     matchFilter.createdAt = {
       $gte: startDate,
-      $lte: endDate
+      $lte: endDate,
     };
 
     // Aggregate leads by month (total count)
@@ -2471,87 +2918,104 @@ export const getLeadsByMonth = async (req, res) => {
       {
         $group: {
           _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' }
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
           },
-          count: { $sum: 1 }
-        }
+          count: { $sum: 1 },
+        },
       },
       {
         $project: {
           _id: 0,
-          year: '$_id.year',
-          month: '$_id.month',
-          count: 1
-        }
-      }
+          year: "$_id.year",
+          month: "$_id.month",
+          count: 1,
+        },
+      },
     ]);
 
     // Aggregate closed leads by month
-    const closedLeadsFilter = { ...matchFilter, status: 'Closed' };
+    const closedLeadsFilter = { ...matchFilter, status: "Closed" };
     const closedLeadsByMonth = await Lead.aggregate([
       { $match: closedLeadsFilter },
       {
         $group: {
           _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' }
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
           },
-          closedCount: { $sum: 1 }
-        }
+          closedCount: { $sum: 1 },
+        },
       },
       {
         $project: {
           _id: 0,
-          year: '$_id.year',
-          month: '$_id.month',
-          closedCount: 1
-        }
-      }
+          year: "$_id.year",
+          month: "$_id.month",
+          closedCount: 1,
+        },
+      },
     ]);
 
     // Generate all 12 months (Jan-Dec) for the target year
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const allMonths = [];
-    
+
     for (let month = 1; month <= 12; month++) {
-      const monthLabel = `${targetYear}-${month.toString().padStart(2, '0')}`;
-      
+      const monthLabel = `${targetYear}-${month.toString().padStart(2, "0")}`;
+
       allMonths.push({
         year: targetYear,
         month: month,
         monthName: monthNames[month - 1],
         monthLabel: monthLabel,
         count: 0,
-        closedCount: 0
+        closedCount: 0,
       });
     }
 
     // Create a map of aggregated data for quick lookup
     const dataMap = new Map();
-    leadsByMonth.forEach(item => {
-      const key = `${item.year}-${item.month.toString().padStart(2, '0')}`;
+    leadsByMonth.forEach((item) => {
+      const key = `${item.year}-${item.month.toString().padStart(2, "0")}`;
       dataMap.set(key, item.count);
     });
 
     // Create a map of closed leads data for quick lookup
     const closedDataMap = new Map();
-    closedLeadsByMonth.forEach(item => {
-      const key = `${item.year}-${item.month.toString().padStart(2, '0')}`;
+    closedLeadsByMonth.forEach((item) => {
+      const key = `${item.year}-${item.month.toString().padStart(2, "0")}`;
       closedDataMap.set(key, item.closedCount);
     });
 
     // Merge data - fill in counts from aggregated data, keep 0 for missing months
-    const result = allMonths.map(month => ({
+    const result = allMonths.map((month) => ({
       year: month.year,
       month: month.month,
       monthName: month.monthName,
       monthLabel: month.monthLabel,
       count: dataMap.get(month.monthLabel) || 0,
-      closedCount: closedDataMap.get(month.monthLabel) || 0
+      closedCount: closedDataMap.get(month.monthLabel) || 0,
     }));
 
-    return successResponse(res, 'Leads by month retrieved successfully', result);
+    return successResponse(
+      res,
+      "Leads by month retrieved successfully",
+      result
+    );
   } catch (error) {
     return serverError(res, error);
   }
