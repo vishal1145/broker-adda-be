@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config();
 import Lead from "../models/Lead.js";
 import Property from "../models/Property.js";
 import Chat from "../models/Chat.js";

@@ -2,6 +2,8 @@ import axios from "axios";
 
 export const sendToZapier = async (webhookUrl, payload) => {
   if (!webhookUrl) return;
+  // console.log("Webhook URL: ", webhookUrl);
+  // console.log("Payload: ", payload);
 
   try {
     await axios.post(webhookUrl, payload, {
