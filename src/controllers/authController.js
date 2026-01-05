@@ -1391,8 +1391,14 @@ export const adminCreateBroker = async (req, res) => {
     createNotification({
       userId: user._id,
       type: 'approval',
-      title: 'Broker Account Created',
-      message: `Your broker account has been successfully created by admin${req.user?.name ? ` (${req.user.name})` : ''}. Welcome to Broker Adda!`,
+      title: ' Broker Account Created',
+      message: `Welcome to Brokergully! Your broker account has been successfully created.\n\n` +
+        `Account Details:\n\n` +
+        `Name: ${user.name || 'N/A'}\n\n` +
+        `Email: ${user.email}\n\n` +
+        `Phone: ${user.phone}\n\n` +
+        `Created By: Admin${req.user?.name ? ` (${req.user.name})` : ''}\n\n` +
+        ` Note: Your account is now active. You can start listing properties and managing inquiries.`,
       priority: 'high',
       relatedEntity: {
         entityType: 'BrokerDetail',
@@ -1417,8 +1423,14 @@ export const adminCreateBroker = async (req, res) => {
       createNotification({
         userId: req.user._id,
         type: 'approval',
-        title: 'Broker Account Created',
-        message: `Broker account for ${user.name || user.email || user.phone} has been successfully created.`,
+        title: ' Broker Account Created Successfully',
+        message: `You have successfully created a new broker account in the Brokergully Command Center.\n\n` +
+          `Broker Details:\n\n` +
+          `Name: ${user.name || 'N/A'}\n\n` +
+          `Email: ${user.email}\n\n` +
+          `Phone: ${user.phone}\n\n` +
+          `Status: Active\n\n` +
+          ` Note: The broker can now access their account and start using the platform.`,
         priority: 'medium',
         relatedEntity: {
           entityType: 'BrokerDetail',
@@ -1448,8 +1460,14 @@ export const adminCreateBroker = async (req, res) => {
           createNotification({
             userId: admin._id,
             type: 'approval',
-            title: 'New Broker Created by Admin',
-            message: `A new broker account has been created${req.user?.name ? ` by ${req.user.name}` : ' by admin'}${user.name ? ` for ${user.name}` : ''}${user.phone ? ` (${user.phone})` : ''}.`,
+            title: ' New Broker Created by Admin',
+            message: `A new broker account has been created in the Brokergully Command Center.\n\n` +
+              `Broker Details:\n\n` +
+              `Name: ${user.name || 'N/A'}\n\n` +
+              `Email: ${user.email}\n\n` +
+              `Phone: ${user.phone}\n\n` +
+              `Created By: ${req.user?.name || 'Admin'}\n\n` +
+              ` Note: This broker account is now active and ready to use.`,
             priority: 'low',
             relatedEntity: {
               entityType: 'BrokerDetail',
@@ -1717,8 +1735,11 @@ export const verifyEmail = async (req, res) => {
     createNotification({
       userId: user._id,
       type: 'system',
-      title: 'Email Verified Successfully',
-      message: `Your email address ${user.email} has been verified successfully.`,
+      title: ' Email Verified Successfully',
+      message: `Your email address has been successfully verified in the Brokergully Command Center.\n\n` +
+        `Email: ${user.email}\n\n` +
+        `Status: Verified\n\n` +
+        `Note: Your account is now fully activated. You can access all features of the platform.`,
       priority: 'medium',
       relatedEntity: {
         entityType: 'User',

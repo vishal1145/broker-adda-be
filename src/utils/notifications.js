@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Notification from '../models/Notification.js';
 import BrokerDetail from '../models/BrokerDetail.js';
 import Property from '../models/Property.js';
@@ -96,10 +97,10 @@ const sendEmailNotification = async (userEmail, title, message, options = {}) =>
   }
 };
 
-// Send email verification email - uses same approach as sendEmailNotification for consistency
+// Send email verification email - uses same template format as other emails
 export const sendVerificationEmail = async (userEmail, verificationToken, userName = 'User') => {
   try {
-    // Configure email transporter with server-friendly settings (same as sendEmailNotification)
+    // Configure email transporter with server-friendly settings
     const transporter = await createSMTPTransporter();
 
     // Only send if SMTP is configured
@@ -109,36 +110,33 @@ export const sendVerificationEmail = async (userEmail, verificationToken, userNa
     }
 
     // Generate verification URL
+    // BASE_URL should be the full base URL (e.g., http://localhost:3000 or https://yourdomain.com)
     const baseUrl = process.env.BASE_URL || '';
-    const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+    // Ensure the URL includes the /api/auth prefix for the verification endpoint
+    const verificationUrl = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`;
 
-    const emailSubject = 'Verify Your Email Address';
-    const emailText = `Hello ${userName},\n\nPlease verify your email address by clicking on the following link:\n\n${verificationUrl}\n\nThis link will expire in 24 hours.\n\nIf you did not request this verification, please ignore this email.\n\nBest regards,\nBroker Adda Team`;
-    
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #333;">Verify Your Email Address</h2>
-        <p>Hello ${userName},</p>
-        <p>Thank you for registering with Broker Adda. Please verify your email address by clicking on the button below:</p>
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${verificationUrl}" style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Verify Email</a>
-        </div>
-        <p>Or copy and paste this link into your browser:</p>
-        <p style="word-break: break-all; color: #666;">${verificationUrl}</p>
-        <p style="color: #999; font-size: 12px;">This link will expire in 24 hours.</p>
-        <p style="color: #999; font-size: 12px;">If you did not request this verification, please ignore this email.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-        <p style="color: #999; font-size: 12px;">Best regards,<br>Broker Adda Team</p>
-      </div>
-    `;
+    const emailSubject = ' Verify Your Email Address';
+    const emailMessage = `Thank you for registering with Brokergully. Please verify your email address to complete your registration.\n\n` +
+      `Click on the button below to verify your email address:\n\n` +
+      `[Verify Email] - ${verificationUrl}\n\n` +
+      `Or copy and paste this link into your browser:\n${verificationUrl}\n\n` +
+      ` Note: This verification link will expire in 24 hours.\n\n` +
+      `If you did not request this verification, please ignore this email.`;
+
+    // Generate email template with header, footer, and proper formatting (same as other emails)
+    const emailContent = generateEmailTemplate({
+      title: emailSubject,
+      message: emailMessage,
+      userName: userName
+    });
 
     // Use same sendMail pattern as sendEmailNotification
     const info = await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: userEmail,
       subject: emailSubject,
-      text: emailText,
-      html: emailHtml
+      text: emailContent.text,
+      html: emailContent.html
     });
 
     console.log(`Verification email sent successfully to ${userEmail}. Message ID: ${info.messageId}`);
@@ -274,7 +272,7 @@ export const createNotification = async ({
     }
 
     // Get user preferences for email/SMS notifications
-    const user = await User.findById(userId).select('email phone name emailNotification smsNotification pushNotification');
+    const user = await User.findById(userId).select('email phone name emailNotification smsNotification pushNotification role');
     
     const notification = new Notification({
       userId,
@@ -289,12 +287,26 @@ export const createNotification = async ({
 
     await notification.save();
 
+    // Get broker name if user is a broker (for better personalization)
+    let displayName = user?.name || 'User';
+    if (user?.role === 'broker') {
+      try {
+        const brokerDetail = await BrokerDetail.findOne({ userId: userId }).select('name').lean();
+        if (brokerDetail?.name) {
+          displayName = brokerDetail.name;
+        }
+      } catch (err) {
+        // Fallback to user name if broker lookup fails
+        console.error('Error fetching broker name for notification:', err);
+      }
+    }
+
     // Send email if enabled and user has email
     if (user && user.emailNotification && user.email) {
       try {
         await sendEmailNotification(user.email, title, message, {
           userId: userId,
-          userName: user.name || undefined
+          userName: displayName
         });
       } catch (error) {
         console.error('Error sending email notification:', error);
@@ -331,129 +343,335 @@ export const createNotification = async ({
  * Create notification for enquires events
  */
 export const createLeadNotification = async (userId, action, lead, actor = null) => {
-  // Get customer name (handle both object and populated cases)
-  const customerName = lead.customerName || 'Unknown Customer';
-  const customerPhone = lead.customerPhone || '';
-  const requirement = lead.requirement || '';
-  
-  const actionMessages = {
-    created: `New enquires created for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}${requirement ? ` - ${requirement.substring(0, 50)}${requirement.length > 50 ? '...' : ''}` : ''}`,
-    updated: `Enquires updated for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}`,
-    transferred: `Enquires for ${customerName}${customerPhone ? ` (${customerPhone})` : ''} has been transferred to you`,
-    statusChanged: `Enquires status changed for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}${lead.status ? ` to ${lead.status}` : ''}`,
-    deleted: `Enquires deleted for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}`
-  };
+  try {
+    // Get customer name (handle both object and populated cases)
+    const customerName = lead.customerName || 'Unknown Customer';
+    const customerPhone = lead.customerPhone || '';
+    const requirement = lead.requirement || '';
+    const propertyType = lead.propertyType || '';
+    const budget = lead.budget || null;
+    
+    // Populate lead with region and broker info if not already populated
+    // Skip population for 'deleted' action since lead is already deleted from database
+    let populatedLead = lead;
+    if (action !== 'deleted' && lead._id && (!lead.primaryRegion || typeof lead.primaryRegion === 'string' || lead.primaryRegion._id)) {
+      populatedLead = await Lead.findById(lead._id)
+        .populate('primaryRegion', 'name city state')
+        .populate('secondaryRegion', 'name city state')
+        .populate('createdBy', 'name')
+        .lean();
+      
+      // If lead was not found (already deleted), use original lead data
+      if (!populatedLead) {
+        populatedLead = lead;
+      }
+    }
+    
+    // Get location name from primary region
+    let locationName = 'Unknown Location';
+    if (populatedLead.primaryRegion) {
+      if (typeof populatedLead.primaryRegion === 'object' && populatedLead.primaryRegion.name) {
+        locationName = populatedLead.primaryRegion.name;
+      } else if (typeof populatedLead.primaryRegion === 'string') {
+        // If it's just an ID, try to fetch it
+        const region = await Region.findById(populatedLead.primaryRegion).select('name').lean();
+        if (region) locationName = region.name;
+      }
+    }
+    
+    // Get broker name from the user receiving the notification
+    let brokerName = 'Broker';
+    try {
+      const brokerDetail = await BrokerDetail.findOne({ userId: userId }).select('name').lean();
+      if (brokerDetail?.name) {
+        brokerName = brokerDetail.name;
+      } else {
+        // Fallback to user name
+        const user = await User.findById(userId).select('name').lean();
+        if (user?.name) {
+          brokerName = user.name;
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching broker name:', err);
+    }
+    
+    // Format budget in Lakhs if available
+    let budgetText = '';
+    if (budget) {
+      const budgetInLakhs = budget / 100000;
+      budgetText = `₹${budgetInLakhs} Lakh`;
+    }
+    
+    // Format message according to template for "created" action
+    let title = '';
+    let message = '';
+    
+    if (action === 'created') {
+      title = ` New Enquiry: ${customerName} for ${propertyType} in ${locationName}`;
+      
+      message = `You have a new property Enquiry! Here are the details from the Brokergully Command Center:\n\n`;
+      message += `Customer: ${customerName} (${customerPhone})\n\n`;
+      message += `Requirement: ${requirement}\n\n`;
+      message += `Property Type: ${propertyType}\n\n`;
+      if (budgetText) {
+        message += `Budget: ${budgetText}\n\n`;
+      }
+      message += `Location: ${locationName}\n\n`;
+      message += ` Advisory Note: Brokers who respond within 10 minutes are 3x more likely to close the deal.\n\n`;
+      message += `[View Full Details & Contact Customer]`;
+    } else if (action === 'deleted') {
+      // Special format for deleted action - check metadata first, then lead object
+      const reason = lead.deletionReason || (lead.metadata && lead.metadata.reason) || 'Marked as Junk / Duplicate / Closed';
+      title = ` Enquiry Deleted: ${customerName} has been removed`;
+      message = `An Enquiry linked to your profile has been deleted from the Brokergully Command Center.\n\n` +
+        `Customer: ${customerName}\n\n` +
+        `Reason: ${reason}\n\n` +
+        `Note: This Enquiry is no longer active in your "In Progress" list. No further action is required.`;
+    } else {
+      // Keep original format for other actions
+      const actionMessages = {
+        updated: `Enquires updated for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}`,
+        transferred: `Enquires for ${customerName}${customerPhone ? ` (${customerPhone})` : ''} has been transferred to you`,
+        statusChanged: `Enquires status changed for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}${lead.status ? ` to ${lead.status}` : ''}`
+      };
 
-  const titles = {
-    created: `New Enquires: ${customerName}`,
-    updated: `Enquires Updated: ${customerName}`,
-    transferred: `Enquires Transferred: ${customerName}`,
-    statusChanged: `Enquires Status Changed: ${customerName}`,
-    deleted: `Enquires Deleted: ${customerName}`
-  };
+      const titles = {
+        updated: `Enquires Updated: ${customerName}`,
+        transferred: `Enquires Transferred: ${customerName}`,
+        statusChanged: `Enquires Status Changed: ${customerName}`
+      };
+      
+      title = titles[action] || `Enquires Activity: ${customerName}`;
+      message = actionMessages[action] || `Enquires activity for ${customerName}: ${action}`;
+    }
 
-  return await createNotification({
-    userId,
-    type: 'lead',
-    title: titles[action] || `Enquires Activity: ${customerName}`,
-    message: actionMessages[action] || `Enquires activity for ${customerName}: ${action}`,
-    priority: action === 'transferred' ? 'high' : 'medium',
-    relatedEntity: {
-      entityType: 'Lead',
-      entityId: lead._id || lead
-    },
-    activity: actor ? {
-      action,
-      actorId: actor._id || actor,
-      actorName: actor.name || actor.name
-    } : { action },
-    metadata: {
+    // Build metadata
+    const metadataObj = {
       leadId: lead._id || lead,
       customerName,
       customerPhone,
       requirement,
+      propertyType,
+      budget: budgetText,
+      location: locationName,
       status: lead.status
+    };
+
+    // Add deletion reason if available
+    if (action === 'deleted' && lead.deletionReason) {
+      metadataObj.reason = lead.deletionReason;
     }
-  });
+
+    return await createNotification({
+      userId,
+      type: 'lead',
+      title: title,
+      message: message,
+      priority: action === 'transferred' || action === 'created' ? 'high' : 'medium',
+      relatedEntity: {
+        entityType: 'Lead',
+        entityId: lead._id || lead
+      },
+      activity: actor ? {
+        action,
+        actorId: actor._id || actor,
+        actorName: actor.name || actor.name
+      } : { action },
+      metadata: metadataObj
+    });
+  } catch (error) {
+    console.error('Error in createLeadNotification:', error);
+    // Fallback notification - use appropriate format based on action
+    const customerName = lead.customerName || 'Unknown Customer';
+    const customerPhone = lead.customerPhone || '';
+    
+    let fallbackTitle = `Enquires Activity: ${customerName}`;
+    let fallbackMessage = `Enquires activity for ${customerName}${customerPhone ? ` (${customerPhone})` : ''}`;
+    
+    // Use deletion format if action is deleted
+    if (action === 'deleted') {
+      const reason = lead.deletionReason || 'Marked as Junk / Duplicate / Closed';
+      fallbackTitle = `🗑️ Enquiry Update: ${customerName} has been removed`;
+      fallbackMessage = `An Enquiry linked to your profile has been deleted from the Brokergully Command Center.\n\n` +
+        `Customer: ${customerName}\n\n` +
+        `Reason: ${reason}\n\n` +
+        `Note: This Enquiry is no longer active in your "In Progress" list. No further action is required.`;
+    }
+    
+    return await createNotification({
+      userId,
+      type: 'lead',
+      title: fallbackTitle,
+      message: fallbackMessage,
+      priority: 'medium',
+      relatedEntity: {
+        entityType: 'Lead',
+        entityId: lead._id || lead
+      },
+      activity: { action },
+      metadata: {
+        leadId: lead._id || lead,
+        customerName,
+        customerPhone,
+        ...(action === 'deleted' && lead.deletionReason ? { reason: lead.deletionReason } : {})
+      }
+    });
+  }
 };
 
 /**
  * Create notification for property events
  */
 export const createPropertyNotification = async (userId, action, property, actor = null) => {
-  // Get property details (handle both object and populated cases)
-  const propertyTitle = property.title || property.propertyTitle || 'Unknown Property';
-  const propertyAddress = property.address || '';
-  const bedrooms = property.bedrooms || property.bedroom;
-  const propertyType = property.propertyType || '';
-  const subType = property.subType || '';
-  const price = property.price;
-  const priceUnit = property.priceUnit || 'INR';
-  
-  // Build property description
-  let propertyDesc = '';
-  if (bedrooms) {
-    propertyDesc = `${bedrooms} BHK`;
-  }
-  if (subType) {
-    propertyDesc = propertyDesc ? `${propertyDesc} ${subType}` : subType;
-  } else if (propertyType) {
-    propertyDesc = propertyDesc ? `${propertyDesc} ${propertyType}` : propertyType;
-  }
-  if (!propertyDesc) {
-    propertyDesc = propertyTitle;
-  }
-  
-  // Format price
-  let priceText = '';
-  if (price) {
-    const formattedPrice = new Intl.NumberFormat('en-IN').format(price);
-    priceText = ` (₹${formattedPrice}${priceUnit !== 'INR' ? ` ${priceUnit}` : ''})`;
-  }
-  
-  const actionMessages = {
-    created: `Property created: ${propertyTitle}${priceText}${propertyAddress ? ` at ${propertyAddress}` : ''}`,
-    updated: `Property updated: ${propertyTitle}${priceText}${propertyAddress ? ` at ${propertyAddress}` : ''}`,
-    approved: `Your property "${propertyTitle}"${priceText}${propertyAddress ? ` at ${propertyAddress}` : ''} has been approved`,
-    rejected: `Your property "${propertyTitle}"${priceText}${propertyAddress ? ` at ${propertyAddress}` : ''} has been rejected`,
-    deleted: `Property deleted: ${propertyTitle}${priceText}${propertyAddress ? ` at ${propertyAddress}` : ''}`
-  };
-
-  const titles = {
-    created: `Property Created: ${propertyTitle}`,
-    updated: `Property Updated: ${propertyTitle}`,
-    approved: `Property Approved: ${propertyTitle}`,
-    rejected: `Property Rejected: ${propertyTitle}`,
-    deleted: `Property Deleted: ${propertyTitle}`
-  };
-
-  return await createNotification({
-    userId,
-    type: 'property',
-    title: titles[action] || `Property Activity: ${propertyTitle}`,
-    message: actionMessages[action] || `Property activity for ${propertyTitle}: ${action}`,
-    priority: action === 'approved' || action === 'rejected' ? 'high' : 'medium',
-    relatedEntity: {
-      entityType: 'Property',
-      entityId: property._id || property
-    },
-    activity: actor ? {
-      action,
-      actorId: actor._id || actor,
-      actorName: actor.name || actor.name
-    } : { action },
-    metadata: {
-      propertyId: property._id || property,
-      title: propertyTitle,
-      address: propertyAddress,
-      bedrooms,
-      propertyType,
-      subType,
-      price,
-      priceUnit,
-      status: property.status
+  try {
+    // Get property details (handle both object and populated cases)
+    const propertyTitle = property.title || property.propertyTitle || 'Unknown Property';
+    const propertyAddress = property.address || '';
+    const bedrooms = property.bedrooms || property.bedroom;
+    const propertyType = property.propertyType || '';
+    const subType = property.subType || '';
+    const price = property.price;
+    const priceUnit = property.priceUnit || 'INR';
+    const city = property.city || '';
+    
+    // Build property description
+    let propertyDesc = '';
+    if (bedrooms) {
+      propertyDesc = `${bedrooms} BHK`;
     }
-  });
+    if (subType) {
+      propertyDesc = propertyDesc ? `${propertyDesc} ${subType}` : subType;
+    } else if (propertyType) {
+      propertyDesc = propertyDesc ? `${propertyDesc} ${propertyType}` : propertyType;
+    }
+    if (!propertyDesc) {
+      propertyDesc = propertyType || 'Property';
+    }
+    
+    // Format price
+    let priceText = 'N/A';
+    if (price) {
+      const formattedPrice = new Intl.NumberFormat('en-IN').format(price);
+      priceText = `₹${formattedPrice}${priceUnit !== 'INR' ? ` ${priceUnit}` : ''}`;
+    }
+    
+    // Get broker name for personalization
+    let brokerName = 'Broker';
+    try {
+      const brokerDetail = await BrokerDetail.findOne({ userId: userId }).select('name').lean();
+      if (brokerDetail?.name) {
+        brokerName = brokerDetail.name;
+      } else {
+        const user = await User.findById(userId).select('name').lean();
+        if (user?.name) {
+          brokerName = user.name;
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching broker name for property notification:', err);
+    }
+    
+    // Format messages according to action
+    let title = '';
+    let message = '';
+    
+    if (action === 'created') {
+      title = ` Property Created: ${propertyTitle}`;
+      message = `Your property listing has been successfully created in the Brokergully Command Center.\n\n` +
+        `Property: ${propertyTitle}\n\n` +
+        `Price: ${priceText}\n\n` +
+        (propertyAddress ? `Address: ${propertyAddress}${city ? `, ${city}` : ''}\n\n` : '') +
+        `Status: Pending Approval\n\n` +
+        ` Note: Your property is under review. You will be notified once it's approved and goes live.`;
+    } else if (action === 'updated') {
+      title = ` Property Updated: ${propertyTitle}`;
+      message = `Your property listing has been updated in the Brokergully Command Center.\n\n` +
+        `Property: ${propertyTitle}\n\n` +
+        `Price: ${priceText}\n\n` +
+        (propertyAddress ? `Address: ${propertyAddress}${city ? `, ${city}` : ''}\n\n` : '') +
+        ` Note: Review the changes and ensure all details are correct.`;
+    } else if (action === 'approved') {
+      title = ` Property Approved: ${propertyTitle}`;
+      message = `Great news! Your property listing has been approved and is now live on Brokergully.\n\n` +
+        `Property: ${propertyTitle}\n\n` +
+        `Price: ${priceText}\n\n` +
+        (propertyAddress ? `Address: ${propertyAddress}${city ? `, ${city}` : ''}\n\n` : '') +
+        `Status: Active\n\n` +
+        ` Note: Your property is now visible to potential buyers and renters. Start receiving inquiries!`;
+    } else if (action === 'rejected') {
+      const rejectionReason = property.rejectionReason || property.notes || 'Please review and resubmit with corrections.';
+      title = ` Property Rejected: ${propertyTitle}`;
+      message = `Your property listing has been reviewed but requires some changes before it can be approved.\n\n` +
+        `Property: ${propertyTitle}\n\n` +
+        `Price: ${priceText}\n\n` +
+        (propertyAddress ? `Address: ${propertyAddress}${city ? `, ${city}` : ''}\n\n` : '') +
+        `Reason: ${rejectionReason}\n\n` +
+        ` Note: Please review the feedback, make necessary corrections, and resubmit your property listing.`;
+    } else if (action === 'deleted') {
+      title = ` Property Deleted: ${propertyTitle}`;
+      message = `Your property listing has been removed from the Brokergully Command Center.\n\n` +
+        `Property: ${propertyTitle}\n\n` +
+        `Price: ${priceText}\n\n` +
+        (propertyAddress ? `Address: ${propertyAddress}${city ? `, ${city}` : ''}\n\n` : '') +
+        ` Note: This property is no longer active in your listings. No further action is required.`;
+    } else {
+      // Default format for other actions
+      title = `Property ${action.charAt(0).toUpperCase() + action.slice(1)}: ${propertyTitle}`;
+      message = `Property ${action}: ${propertyTitle}${priceText !== 'N/A' ? ` (${priceText})` : ''}${propertyAddress ? ` at ${propertyAddress}` : ''}`;
+    }
+
+    return await createNotification({
+      userId,
+      type: 'property',
+      title: title,
+      message: message,
+      priority: action === 'approved' || action === 'rejected' ? 'high' : 'medium',
+      relatedEntity: {
+        entityType: 'Property',
+        entityId: property._id || property
+      },
+      activity: actor ? {
+        action,
+        actorId: actor._id || actor,
+        actorName: actor.name || actor.name
+      } : { action },
+      metadata: {
+        propertyId: property._id || property,
+        title: propertyTitle,
+        address: propertyAddress,
+        city,
+        bedrooms,
+        propertyType,
+        subType,
+        price,
+        priceUnit,
+        status: property.status,
+        ...(action === 'rejected' && property.rejectionReason ? { rejectionReason: property.rejectionReason } : {}),
+        ...(action === 'deleted' && property.deletionReason ? { deletionReason: property.deletionReason } : {})
+      }
+    });
+  } catch (error) {
+    console.error('Error in createPropertyNotification:', error);
+    // Fallback notification
+    const propertyTitle = property.title || property.propertyTitle || 'Unknown Property';
+    return await createNotification({
+      userId,
+      type: 'property',
+      title: `Property ${action}: ${propertyTitle}`,
+      message: `Property ${action}: ${propertyTitle}`,
+      priority: 'medium',
+      relatedEntity: {
+        entityType: 'Property',
+        entityId: property._id || property
+      },
+      activity: { action },
+      metadata: {
+        propertyId: property._id || property,
+        title: propertyTitle
+      }
+    });
+  }
 };
 
 /**
@@ -666,11 +884,63 @@ export const createTransferNotification = async (toBrokerId, fromBrokerId, lead,
 
     console.log(`Creating transfer notification: recipientUserId=${recipientUserId}, senderName=${senderName}, leadId=${lead._id || lead}`);
 
+    // Get lead details for email formatting
+    const customerName = lead.customerName || 'Customer';
+    const requirement = lead.requirement || 'N/A';
+    const propertyType = lead.propertyType || 'Property';
+    const budget = lead.budget || null;
+    
+    // Format budget with ₹ symbol
+    let budgetText = 'N/A';
+    if (budget) {
+      const formattedBudget = new Intl.NumberFormat('en-IN').format(budget);
+      budgetText = `₹${formattedBudget}`;
+    }
+
+    // Get primary region name
+    let regionName = 'Unknown Region';
+    if (lead.primaryRegion) {
+      // Check if it's a populated object with name property
+      if (typeof lead.primaryRegion === 'object' && lead.primaryRegion !== null) {
+        // Handle Mongoose document or plain object
+        if (lead.primaryRegion.name) {
+          regionName = lead.primaryRegion.name;
+        } else if (lead.primaryRegion._id) {
+          // If it's an object but name is missing, try to fetch it
+          const region = await Region.findById(lead.primaryRegion._id).select('name').lean();
+          if (region && region.name) {
+            regionName = region.name;
+          } else {
+            console.warn(`Region not found for ID: ${lead.primaryRegion._id}`);
+          }
+        }
+      } else if (typeof lead.primaryRegion === 'string' || lead.primaryRegion instanceof mongoose.Types.ObjectId) {
+        // If it's just an ID (string or ObjectId), fetch it
+        const region = await Region.findById(lead.primaryRegion).select('name').lean();
+        if (region && region.name) {
+          regionName = region.name;
+        } else {
+          console.warn(`Region not found for ID: ${lead.primaryRegion}`);
+        }
+      }
+    } else {
+      console.warn(`Lead ${lead._id || 'unknown'} has no primaryRegion`);
+    }
+
+    // Format email subject and message according to requirements
+    const emailSubject = ` Enquiry Transferred: ${customerName} – ${propertyType}`;
+    const emailMessage = `A property Enquiry has been transferred to you by ${senderName}.\n\n` +
+      `Customer: ${customerName}\n\n` +
+      `Requirement: ${requirement}\n\n` +
+      `Budget: ${budgetText}\n\n` +
+      `Region: ${regionName}\n\n` +
+      ` Advisory Note: This lead was shared from another region. Review the details and accept the transfer to begin communication.`;
+
     const notification = await createNotification({
       userId: recipientUserId, // Notification goes to RECIPIENT broker (toBroker's userId)
       type: 'transfer',
-      title: 'Enquires Transferred to You',
-      message: `An enquiry for ${lead.customerName || 'customer'} has been transferred to you by ${senderName}`,
+      title: emailSubject, // Use formatted email subject
+      message: emailMessage, // Use formatted email message
       priority: 'high',
       relatedEntity: {
         entityType: 'Lead',
@@ -686,7 +956,11 @@ export const createTransferNotification = async (toBrokerId, fromBrokerId, lead,
         fromBrokerId,
         toBrokerId,
         customerName: lead.customerName,
-        customerPhone: lead.customerPhone
+        customerPhone: lead.customerPhone,
+        requirement,
+        propertyType,
+        budget: budgetText,
+        regionName
       }
     });
 

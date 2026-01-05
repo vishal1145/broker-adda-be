@@ -1973,27 +1973,117 @@ export const updateLead = async (req, res) => {
 export const deleteLead = async (req, res) => {
   try {
     const { id } = req.params;
+    const { reason } = req.body || {}; // Optional deletion reason
 
-    // Check if lead exists
-    const lead = await Lead.findById(id);
+    // Check if lead exists and populate necessary fields before deletion
+    const lead = await Lead.findById(id)
+      .populate({
+        path: 'createdBy',
+        select: 'userId',
+        populate: {
+          path: 'userId',
+          select: '_id'
+        }
+      })
+      .populate({
+        path: 'transfers.toBroker',
+        select: 'userId',
+        populate: {
+          path: 'userId',
+          select: '_id'
+        }
+      })
+      .populate({
+        path: 'transfers.fromBroker',
+        select: 'userId',
+        populate: {
+          path: 'userId',
+          select: '_id'
+        }
+      })
+      .lean();
+    
     if (!lead) {
       return errorResponse(res, "Lead not found", 404);
     }
 
-    // Delete the lead first
+    // Store deletion reason in lead object for notification
+    if (reason) {
+      lead.deletionReason = reason;
+    }
+
+    // Collect all broker user IDs who should be notified
+    const brokerUserIds = new Set();
+
+    // Add createdBy broker's userId
+    if (lead.createdBy) {
+      if (lead.createdBy.userId) {
+        const createdByUserId = lead.createdBy.userId._id || lead.createdBy.userId;
+        if (createdByUserId) {
+          brokerUserIds.add(String(createdByUserId));
+        }
+      } else if (lead.createdBy._id) {
+        // If userId not populated, fetch it from BrokerDetail
+        const brokerDetail = await BrokerDetail.findById(lead.createdBy._id).select('userId').lean();
+        if (brokerDetail && brokerDetail.userId) {
+          brokerUserIds.add(String(brokerDetail.userId));
+        }
+      }
+    }
+
+    // Add all brokers from transfers (both toBroker and fromBroker)
+    if (Array.isArray(lead.transfers)) {
+      for (const transfer of lead.transfers) {
+        // Handle toBroker
+        if (transfer.toBroker) {
+          if (transfer.toBroker.userId) {
+            const toBrokerUserId = transfer.toBroker.userId._id || transfer.toBroker.userId;
+            if (toBrokerUserId) {
+              brokerUserIds.add(String(toBrokerUserId));
+            }
+          } else if (transfer.toBroker._id) {
+            const brokerDetail = await BrokerDetail.findById(transfer.toBroker._id).select('userId').lean();
+            if (brokerDetail && brokerDetail.userId) {
+              brokerUserIds.add(String(brokerDetail.userId));
+            }
+          }
+        }
+        // Handle fromBroker
+        if (transfer.fromBroker) {
+          if (transfer.fromBroker.userId) {
+            const fromBrokerUserId = transfer.fromBroker.userId._id || transfer.fromBroker.userId;
+            if (fromBrokerUserId) {
+              brokerUserIds.add(String(fromBrokerUserId));
+            }
+          } else if (transfer.fromBroker._id) {
+            const brokerDetail = await BrokerDetail.findById(transfer.fromBroker._id).select('userId').lean();
+            if (brokerDetail && brokerDetail.userId) {
+              brokerUserIds.add(String(brokerDetail.userId));
+            }
+          }
+        }
+      }
+    }
+
+    // Delete the lead
     await Lead.findByIdAndDelete(id);
 
-    // Create notification after deleting (non-blocking - fire and forget)
-    // Use userId from token (req.user._id)
-    if (req.user?._id) {
-      createLeadNotification(req.user._id, "deleted", lead, req.user).catch(
-        (notifError) => {
-          console.error(
-            "Error creating lead deletion notification:",
-            notifError
-          );
-        }
+    // Create notifications for all linked brokers (non-blocking - fire and forget)
+    if (brokerUserIds.size > 0) {
+      const notificationPromises = Array.from(brokerUserIds).map(userId =>
+        createLeadNotification(userId, "deleted", { ...lead, deletionReason: reason }, req.user)
       );
+
+      Promise.all(notificationPromises)
+        .then((results) => {
+          const successCount = results.filter((r) => r !== null).length;
+          console.log(
+            `Successfully created ${successCount} out of ${notificationPromises.length} deletion notifications`
+          );
+        })
+        .catch((error) => {
+          console.error("Error creating deletion notifications:", error);
+        });
     }
 
     // Send response immediately (notification creation runs in background)
@@ -2288,11 +2378,17 @@ export const transferAndNotes = async (req, res) => {
             uniqueRecipientIds
           );
 
+          // Always populate lead with primaryRegion before creating notifications
+          // The lead fetched earlier is not populated, so we need to fetch it again with population
+          const populatedLeadForNotifications = await Lead.findById(lead._id || id)
+            .populate('primaryRegion', 'name')
+            .lean();
+
+          // Create notifications with populated lead data (non-blocking)
           const notifications = uniqueRecipientIds.map((toBrokerId) =>
-            createTransferNotification(toBrokerId, fromId, lead, fromBroker)
+            createTransferNotification(toBrokerId, fromId, populatedLeadForNotifications || lead, fromBroker)
           );
 
-          // Send all notifications (non-blocking)
           Promise.all(notifications)
             .then((results) => {
               const successCount = results.filter((r) => r !== null).length;

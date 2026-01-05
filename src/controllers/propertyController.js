@@ -736,6 +736,7 @@ export const rejectProperty = async (req, res) => {
     if (reason) {
       const stamp = new Date().toISOString();
       doc.notes = (doc.notes ? `${doc.notes}\n` : "") + `Rejected: ${reason} (${stamp})`;
+      doc.rejectionReason = reason; // Store rejection reason for notification
     }
     await doc.save();
 
@@ -744,14 +745,25 @@ export const rejectProperty = async (req, res) => {
       .populate("region", "name description city state centerLocation radius")
       .lean();
 
-    // Create notification for property rejection (non-blocking - fire and forget)
-    // Use userId from token (req.user._id)
-    if (req.user?._id) {
-      createPropertyNotification(req.user._id, 'rejected', populated, req.user)
-        .catch(notifError => {
-          console.error('Error creating rejection notification:', notifError);
-        });
+    // Add rejection reason to populated property for notification
+    if (reason && populated) {
+      populated.rejectionReason = reason;
     }
+
+    // Create notification for property rejection (non-blocking - fire and forget)
+    // Send notification to the broker who owns the property
+    getUserIdFromBrokerOrProperty(populated.broker?._id || populated.broker, null)
+      .then(brokerUserId => {
+        if (brokerUserId) {
+          return createPropertyNotification(brokerUserId, 'rejected', populated, req.user);
+        } else {
+          console.warn('Could not find broker userId for property rejection notification');
+          return null;
+        }
+      })
+      .catch(notifError => {
+        console.error('Error creating rejection notification:', notifError);
+      });
 
     // Send response immediately (notification creation runs in background)
     return res.json({ success: true, message: "Property rejected", data: populated });
@@ -986,6 +998,7 @@ export const updateProperty = async (req, res) => {
 export const deleteProperty = async (req, res) => {
   try {
     const { id } = req.params;
+    const { reason } = req.body || {}; // Optional deletion reason
 
     // Validate property ID
     if (!mongoose.isValidObjectId(id)) {
@@ -1009,6 +1022,11 @@ export const deleteProperty = async (req, res) => {
       } else {
         return res.status(403).json({ success: false, message: "Unauthorized" });
       }
+    }
+
+    // Store deletion reason before deletion
+    if (reason) {
+      property.deletionReason = reason;
     }
 
     // Delete the property first
