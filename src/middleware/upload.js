@@ -242,3 +242,4 @@ baseUrl = process.env.IMAGE_URL || 'https://broker-adda-be.fly.dev';
   const relativePath = filePath.replace(/\\/g, '/').replace(/.*\/uploads\//, '/uploads/');
   return `${baseUrl}${relativePath}`;
 };
+export default upload;
