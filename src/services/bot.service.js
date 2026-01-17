@@ -2,16 +2,7 @@ import axios from "axios";
 
 const BASE_URL = "https://botservice-be.algofolks.com/api/estate";
 
-/**
- * Send user message to Estate Bot
- * @param {Object} params
- * @param {string} params.question - User message
- * @param {string} params.brokerId - Selected broker id
- * @param {string} params.sessionId - Chat session id
- * @returns {Promise<Object>} Assistant response
- */
-
-export async function sendEstateMessage({ question, brokerId = "broker_001", sessionId="reqe452354a" }) {
+export async function sendEstateMessage({ question, brokerId = "broker_001", language, sessionId }) {
   if (!question) {
     throw new Error("question is required");
   }
@@ -21,13 +12,13 @@ export async function sendEstateMessage({ question, brokerId = "broker_001", ses
   if (!sessionId) {
     throw new Error("sessionId is required");
   }
-
   try {
     const response = await axios.post(
       `${BASE_URL}/ask`,
       {
         question,
         brokerId,
+        language:language
       },
       {
         params: { sessionId },

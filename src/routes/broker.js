@@ -23,8 +23,6 @@ const router = express.Router();
 router.get('/', validate(brokerQuerySchema, 'query'), getAllBrokers);
 
 
-
-
 // Get single broker details
 router.get('/:id', getBrokerById);
 

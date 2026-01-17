@@ -44,12 +44,10 @@ export const getAllBrokers = async (req, res) => {
       sortOrder,
       latitude,
       longitude,
-      radius // in kilometers, default 50km if not provided
+      radius 
     } = cleanQuery;
 
     // Build filter object
-    // Include brokers with role='broker' OR role not set (legacy brokers)
-    // This ensures we get all brokers even if some don't have the role field set
     const filter = {
       $or: [
         { role: 'broker' },
@@ -569,7 +567,7 @@ export const getBrokerById = async (req, res) => {
     // Find broker by userId instead of _id
     const broker = await BrokerDetail.findOne({ userId: id })
       .populate('region', 'name description city state centerLocation radius')
-      .populate('userId', 'name email phone status emailNotification smsNotification pushNotification');
+      .populate('userId', 'name email phone status emailNotification smsNotification pushNotification isBotEnable botResponseTime');
 
     const brokerSubscription = await Subscription.findOne({ user: new mongoose.Types.ObjectId(id), endDate: { $gt: new Date() } });
 
@@ -666,6 +664,8 @@ export const getBrokerById = async (req, res) => {
     };
     brokerObj.subscription = brokerSubscription ? brokerSubscription.toObject() : null;
 
+    console.log("Here is broker details************");
+    console.log(brokerObj);
     return successResponse(res, 'Broker details retrieved successfully', { broker: brokerObj });
 
   } catch (error) {

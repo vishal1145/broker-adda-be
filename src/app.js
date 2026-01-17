@@ -13,8 +13,10 @@ import http from 'http';
 import Message from './models/Message.js';
 import Chat from './models/Chat.js';
 import User from './models/User.js';
-import { sendEstateMessage } from './services/botService.js';
-import { createNotification } from './utils/notifications.js';
+import { setIO } from './utils/socket.js';
+
+import { createBotReplyTask } from './services/scheduledTask.service.js';
+import { getBotStatus } from './services/user.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +28,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
 });
+
+setIO(io);
 
 // Middleware
 app.use(helmet({
@@ -68,201 +72,70 @@ io.on('connection', (socket) => {
     socket.join(`chat_${chatId}`);
   });
 
-// socket.on('send_message', async (data) => {
-//   try {
-//     const BOT_ID = "69283f29ebfd2895c80d3605";
-
-//     // -----------------------------
-//     // 1️⃣ SAVE USER MESSAGE
-//     // -----------------------------
-//     const msg = await Message.create({
-//       chatId: data.chatId,
-//       from: userId,
-//       to: data.to,
-//       text: data.text,
-//       attachments: data.attachments || [],
-//       leadCards: data.leadCards || []
-//     });
-
-//     await Chat.findByIdAndUpdate(data.chatId, {
-//       lastMessage: msg._id,
-//       $inc: { [`unreadCounts.${data.to}`]: 1 }
-//     });
-
-//     // Emit user message
-//     io.to(`chat_${data.chatId}`).emit('message', msg);
-
-//     // -----------------------------
-//     // 2️⃣ CREATE NOTIFICATION (NON-BLOCKING)
-//     // -----------------------------
-//     (async () => {
-//       try {
-//         const fromUser = await User.findById(userId).select('name');
-
-//         await createNotification({
-//           userId: data.to,
-//           type: 'message',
-//           title: 'New Message',
-//           message: fromUser?.name
-//             ? `You have a new message from ${fromUser.name}: ${data.text.substring(0, 50)}`
-//             : 'You have a new message',
-//           priority: 'medium',
-//           relatedEntity: {
-//             entityType: 'Message',
-//             entityId: msg._id
-//           },
-//           metadata: {
-//             chatId: data.chatId,
-//             messageId: msg._id
-//           }
-//         });
-//       } catch (err) {
-//         console.error('Notification error:', err);
-//       }
-//     })();
-
-//     // -----------------------------
-//     // 3️⃣ BOT AUTO-REPLY
-//     // -----------------------------
-//     if (data.to === BOT_ID) {
-//       try {
-//         const botReply = await sendEstateMessage({
-//           question: data.text
-//         });
-
-//         console.log("Here is bot reply---------------");
-//         console.log(botReply);
-
-//         if (!botReply?.content?.length) return;
-
-//         const botMsg = await Message.create({
-//           chatId: data.chatId,
-//           from: BOT_ID,
-//           to: userId, // 👈 reply back to sender
-//           text: botReply.content[0].text,
-//           attachments: [],
-//           leadCards: []
-//         });
-
-//         await Chat.findByIdAndUpdate(data.chatId, {
-//           lastMessage: botMsg._id,
-//           $inc: { [`unreadCounts.${userId}`]: 1 }
-//         });
-
-//         // Emit bot message (FULL OBJECT)
-//         io.to(`chat_${data.chatId}`).emit('message', botMsg);
-
-//       } catch (botError) {
-//         console.error('Bot reply error:', botError);
-//       }
-//     }
-
-//   } catch (err) {
-//     console.error('send_message error:', err);
-//   }
-// });
-
-
-
-socket.on('send_message', async (data) => {
-  try {
-    const BOT_ID = "69283f29ebfd2895c80d3605";
-
-    // -----------------------------
-    // 1️⃣ SAVE USER MESSAGE
-    // -----------------------------
+  socket.on('send_message', async (data) => {
     const msg = await Message.create({
       chatId: data.chatId,
       from: userId,
       to: data.to,
-      role: 'user',
-      text: data.text || '',
-      content: data.content || [],
+      text: data.text,
+      userLanguage:data.language,
       attachments: data.attachments || [],
-      leadCards: data.leadCards || []
+      leadCards: data.leadCard || []
     });
+
 
     await Chat.findByIdAndUpdate(data.chatId, {
       lastMessage: msg._id,
       $inc: { [`unreadCounts.${data.to}`]: 1 }
     });
 
-    // Emit user message
-    io.to(`chat_${data.chatId}`).emit('message', msg);
-
-    // -----------------------------
-    // 2️⃣ CREATE NOTIFICATION (NON-BLOCKING)
-    // -----------------------------
+    // Create notification for new message (non-blocking - fire and forget)
+    // Don't await - let it run in background so socket message is sent immediately
     (async () => {
       try {
+        const { createNotification } = await import('./utils/notifications.js');
         const fromUser = await User.findById(userId).select('name');
-
         await createNotification({
           userId: data.to,
           type: 'message',
           title: 'New Message',
-          message: fromUser?.name
-            ? `You have a new message from ${fromUser.name}: ${data.text?.substring(0, 50)}`
-            : 'You have a new message',
+          message: fromUser?.name 
+            ? `You have a new message from ${fromUser.name}${data.text ? `: ${data.text.substring(0, 50)}${data.text.length > 50 ? '...' : ''}` : ''}`
+            : `You have a new message${data.text ? `: ${data.text.substring(0, 50)}${data.text.length > 50 ? '...' : ''}` : ''}`,
           priority: 'medium',
           relatedEntity: {
             entityType: 'Message',
             entityId: msg._id
           },
+          activity: {
+            action: 'sent',
+            actorId: userId,
+            actorName: fromUser?.name
+          },
           metadata: {
             chatId: data.chatId,
-            messageId: msg._id
+            messageId: msg._id,
+            hasAttachments: (data.attachments || []).length > 0,
+            hasLeadCards: (data.leadCard || []).length > 0
           }
         });
-      } catch (err) {
-        console.error('Notification error:', err);
+      } catch (notifError) {
+        console.error('Error creating message notification:', notifError);
       }
     })();
 
-    // -----------------------------
-    // 3️⃣ BOT AUTO-REPLY
-    // -----------------------------
-    if (String(data.to) === BOT_ID) {
-      try {
-        const botReply = await sendEstateMessage({
-          question: data.text
-        });
+    //check is bot enable to user
+    let botStatus = await getBotStatus(data.to);
 
-        if (!botReply?.content?.length) return;
-
-        const botText =
-          botReply.content.find(c => c.type === 'text')?.text || '';
-
-        const botMsg = await Message.create({
-          chatId: data.chatId,
-          from: BOT_ID,
-          to: userId,
-          role: 'assistant',
-          text: botText,
-          content: botReply.content,
-          sessionId: botReply.sessionId,
-          attachments: [],
-          leadCards: []
-        });
-
-        await Chat.findByIdAndUpdate(data.chatId, {
-          lastMessage: botMsg._id,
-          $inc: { [`unreadCounts.${userId}`]: 1 }
-        });
-
-        // Emit bot message (FULL OBJECT)
-        io.to(`chat_${data.chatId}`).emit('message', botMsg);
-
-      } catch (botError) {
-        console.error('Bot reply error:', botError);
-      }
+    // create schedule for bot reply
+    if(botStatus.isBotEnable){
+      await createBotReplyTask({
+        chatId: data.chatId,
+        time:botStatus.botResponseTime
+      });
     }
-
-  } catch (err) {
-    console.error('send_message error:', err);
-  }
-});
-
+    io.to(`chat_${data.chatId}`).emit('message', msg);
+  });
 
   socket.on('mark_read', async ({ chatId, messageIds }) => {
     await Message.updateMany({ _id: { $in: messageIds }, to: userId }, { status: 'read' });
@@ -273,9 +146,8 @@ socket.on('send_message', async (data) => {
   socket.on('typing', ({ chatId, isTyping }) => {
     socket.to(`chat_${chatId}`).emit('typing', { userId, isTyping });
   });
-
-
 });
+
 
 
 app.use(compression());

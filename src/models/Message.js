@@ -79,10 +79,17 @@ const messageSchema = new mongoose.Schema({
     required: true
   },
 
+
   from: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+
+  userLanguage:{
+    type: mongoose.Schema.Types.String,
+    required: true, 
+    default:"English"
   },
 
   to: {
@@ -91,17 +98,11 @@ const messageSchema = new mongoose.Schema({
     required: true
   },
 
-  /**
-   * 🔹 Simple text (used by UI, search, notifications)
-   */
   text: {
     type: String,
     default: ''
   },
 
-  /**
-   * 🔹 Structured / AI message
-   */
   role: {
     type: String,
     enum: ['user', 'assistant', 'system'],
