@@ -2,6 +2,7 @@ import { errorResponse } from '../utils/response.js';
 
 export const validate = (schema, source = 'body') => {
   return async (req, res, next) => {
+
     try {
       const dataToValidate = source === 'query' ? req.query : req.body;
       console.log(`Validation middleware - validating request ${source}:`, dataToValidate);

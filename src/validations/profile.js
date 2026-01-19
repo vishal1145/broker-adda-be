@@ -5,6 +5,9 @@ export const completeProfileSchema = Joi.object({
   phone: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).required(),
   name: Joi.string().required().min(2).max(50).trim(),
   email: Joi.string().email().required().lowercase(),
+  isBotEnable:Joi.boolean(),
+  botResponseTime:Joi.number(), 
+  
   // Optional top-level aliases for broker content/experience
   content: Joi.string().max(2000).trim().optional().allow('', null),
   aboutUs: Joi.string().max(2000).trim().optional().allow('', null),

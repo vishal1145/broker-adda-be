@@ -839,9 +839,8 @@ export const adminMarkAllAsRead = async (req, res) => {
 export const updateNotificationPreferences = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { emailNotification, smsNotification, pushNotification } = req.body;
-
-    // Get current user preferences
+    const { emailNotification, smsNotification, pushNotification,  isBotEnable, botResponseTime} = req.body;
+        // Get current user preferences
     const user = await User.findById(userId).select('email phone emailNotification smsNotification pushNotification');
     
     if (!user) {
@@ -872,6 +871,26 @@ export const updateNotificationPreferences = async (req, res) => {
         changes.push(`Push notifications ${pushNotification ? 'enabled' : 'disabled'}`);
       }
     }
+
+    if (isBotEnable !== undefined && typeof isBotEnable === 'boolean') {
+      if (user.isBotEnable !== isBotEnable) {
+        updateData.isBotEnable = isBotEnable;
+        changes.push(`Bot ${isBotEnable ? 'enabled' : 'disabled'}`);
+      }
+    }
+
+    if (botResponseTime !== undefined) {
+    const parsedTime = Number(botResponseTime);
+
+    if (parsedTime < 1) {
+      return errorResponse(res, 'Bot response time must be at least 1', 400);
+    }
+      if (user.botResponseTime !== parsedTime) {
+        updateData.botResponseTime = parsedTime;
+        changes.push(`Bot response time set to ${parsedTime} minute(s)`);
+      }
+    }
+
 
     // If no changes, return early
     if (Object.keys(updateData).length === 0) {

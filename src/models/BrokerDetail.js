@@ -20,7 +20,7 @@ const brokerDetailSchema = new mongoose.Schema({
   phone: {
     type: String,
     match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number']
-  },
+  },  
   whatsappNumber: {
     type: String,
     validate: {

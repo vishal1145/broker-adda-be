@@ -615,12 +615,21 @@ export const verifyOTP = async (req, res) => {
 // Complete profile after OTP verification
 export const completeProfile = async (req, res) => {
   try {
+
+    console.log("here is broker profile");
+    console.log(req.body);
+
     const { 
       phone, name, email, content, aboutUs, experienceYears, experienceDescription, achievements, certifications, 
       aadhar, aadharFront, aadharBack, pan, panFront, panBack, gst, brokerLicense, companyId,
-      removePanFront, removePanBack, removeAadharFront, removeAadharBack,
+      removePanFront, removePanBack, removeAadharFront, removeAadharBack,isBotEnable,botResponseTime,
       ...roleSpecificData 
     } = req.body;
+
+    console.log("hhre is profile edit data");
+    console.log(req.body)
+
+
     const files = req.files;
 
     const user = await User.findOne({ phone });
@@ -667,6 +676,8 @@ export const completeProfile = async (req, res) => {
     const previousEmail = user.email;
     user.name = name;
     user.email = email;
+    user.isBotEnable = isBotEnable;
+    user.botResponseTime = botResponseTime;
     
     // Don't auto-verify email - user must verify via email link
     // If email is being changed or added for the first time, set verification to false

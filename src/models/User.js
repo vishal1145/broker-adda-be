@@ -76,6 +76,16 @@ const userSchema = new mongoose.Schema({
   pushNotification: {
     type: Boolean,
     default: true
+  },
+  isBotEnable: {
+    type: Boolean,
+    required: false,  
+    default: false
+  },
+  botResponseTime: {
+    type: Number,
+    min: [1, 'Bot response time must be at least 1'],
+    default: 1
   }
 }, {
   timestamps: true

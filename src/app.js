@@ -13,6 +13,10 @@ import http from 'http';
 import Message from './models/Message.js';
 import Chat from './models/Chat.js';
 import User from './models/User.js';
+import { setIO } from './utils/socket.js';
+
+import { createBotReplyTask } from './services/scheduledTask.service.js';
+import { getBotStatus } from './services/user.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +28,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
 });
+
+setIO(io);
 
 // Middleware
 app.use(helmet({
@@ -72,11 +78,11 @@ io.on('connection', (socket) => {
       from: userId,
       to: data.to,
       text: data.text,
+      userLanguage:data.language,
       attachments: data.attachments || [],
       leadCards: data.leadCard || []
     });
 
-    console.log('message', msg);
 
     await Chat.findByIdAndUpdate(data.chatId, {
       lastMessage: msg._id,
@@ -89,7 +95,6 @@ io.on('connection', (socket) => {
       try {
         const { createNotification } = await import('./utils/notifications.js');
         const fromUser = await User.findById(userId).select('name');
-        
         await createNotification({
           userId: data.to,
           type: 'message',
@@ -119,6 +124,16 @@ io.on('connection', (socket) => {
       }
     })();
 
+    //check is bot enable to user
+    let botStatus = await getBotStatus(data.to);
+
+    // create schedule for bot reply
+    if(botStatus.isBotEnable){
+      await createBotReplyTask({
+        chatId: data.chatId,
+        time:botStatus.botResponseTime
+      });
+    }
     io.to(`chat_${data.chatId}`).emit('message', msg);
   });
 
@@ -132,6 +147,7 @@ io.on('connection', (socket) => {
     socket.to(`chat_${chatId}`).emit('typing', { userId, isTyping });
   });
 });
+
 
 
 app.use(compression());
