@@ -840,10 +840,7 @@ export const updateNotificationPreferences = async (req, res) => {
   try {
     const userId = req.user._id;
     const { emailNotification, smsNotification, pushNotification,  isBotEnable, botResponseTime} = req.body;
-    console.log("Here is updatation detail")
-    console.log(req.body)
-    console.log(userId)
-    // Get current user preferences
+        // Get current user preferences
     const user = await User.findById(userId).select('email phone emailNotification smsNotification pushNotification');
     
     if (!user) {
